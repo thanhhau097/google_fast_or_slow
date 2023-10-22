@@ -10,9 +10,10 @@ from transformers import HfArgumentParser, TrainingArguments, set_seed
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
 
 from data_args import DataArguments
-from dataset import TileDataset, tile_collate_fn
-from engine import CustomTrainer, TileComputeMetricsFn
-from model import TileModel
+from dataset import (LayoutDataset, TileDataset, layout_collate_fn,
+                     tile_collate_fn)
+from engine import CustomTrainer, LayoutComputeMetricsFn, TileComputeMetricsFn
+from model import LayoutModel, TileModel
 from model_args import ModelArguments
 
 torch.set_float32_matmul_precision("high")
@@ -65,22 +66,26 @@ def main():
     print("Loading dataset...")
 
     if data_args.data_type == "tile":
-        train_dataset = TileDataset(
-            data_type=data_args.data_type,
-            source=data_args.source,
-            search=data_args.search,
-            data_folder=data_args.data_folder,
-            split="train",
-        )
+        dataset_cls = TileDataset
+    else:
+        dataset_cls = LayoutDataset
 
-        val_dataset = TileDataset(
-            data_type=data_args.data_type,
-            source=data_args.source,
-            search=data_args.search,
-            data_folder=data_args.data_folder,
-            split="valid",
-        )
+    train_dataset = LayoutDataset(
+        data_type=data_args.data_type,
+        source=data_args.source,
+        search=data_args.search,
+        data_folder=data_args.data_folder,
+        split="train",
+    )
+    val_dataset = LayoutDataset(
+        data_type=data_args.data_type,
+        source=data_args.source,
+        search=data_args.search,
+        data_folder=data_args.data_folder,
+        split="valid",
+    )
 
+    if data_args.data_type == "tile":
         model = TileModel(
             hidden_channels=[int(x) for x in model_args.hidden_channels.split(",")],
             graph_in=model_args.graph_in,
@@ -91,7 +96,15 @@ def main():
         collate_fn = tile_collate_fn
         compute_metrics = TileComputeMetricsFn(val_dataset.df)
     else:
-        raise ValueError(f"Invalid data type: {data_args.data_type}")
+        model = LayoutModel(
+            hidden_channels=[int(x) for x in model_args.hidden_channels.split(",")],
+            graph_in=model_args.graph_in,
+            graph_out=model_args.graph_out,
+            hidden_dim=model_args.hidden_dim,
+            dropout=model_args.dropout,
+        )
+        collate_fn = layout_collate_fn
+        compute_metrics = LayoutComputeMetricsFn(val_dataset.df)
 
     # Initialize trainer
     print("Initializing model...")
@@ -120,6 +133,7 @@ def main():
         eval_dataset=val_dataset,
         data_collator=collate_fn,
         compute_metrics=compute_metrics,
+        data_type=data_args.data_type,
     )
 
     # Training

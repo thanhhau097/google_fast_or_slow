@@ -4,6 +4,7 @@ from typing import Dict
 import numpy as np
 import torch
 import torch.nn.functional as F
+from scipy.stats import kendalltau
 from torch import nn
 from transformers import Trainer
 from transformers.trainer_pt_utils import nested_detach
@@ -18,12 +19,20 @@ class CustomTrainer(Trainer):
     def compute_loss(self, model: any, inputs: Dict, return_outputs=False):
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        outputs = model(
-            inputs["config_feat"],
-            inputs["node_feat"],
-            inputs["node_opcode"],
-            inputs["edge_index"],
-        )
+        if self.data_type == "tile":
+            outputs = model(
+                inputs["config_feat"],
+                inputs["node_feat"],
+                inputs["node_opcode"],
+                inputs["edge_index"],
+            )
+        else:
+            outputs = model(
+                inputs["node_config_feat"],
+                inputs["node_feat"],
+                inputs["node_opcode"],
+                inputs["edge_index"],
+            )
         loss = self.loss_fn(outputs, inputs["target"].to(device))
 
         if return_outputs:
@@ -82,7 +91,11 @@ class CustomTrainer(Trainer):
         if prediction_loss_only:
             return (loss, None, None)
 
-        del inputs["config_feat"]
+        if self.data_type == "tile":
+            del inputs["config_feat"]
+        else:
+            del inputs["node_config_feat"]
+
         del inputs["node_feat"]
         del inputs["node_opcode"]
         del inputs["edge_index"]
@@ -90,12 +103,16 @@ class CustomTrainer(Trainer):
         gc.collect()
 
         if self.data_type == "tile":
-            # TODO: for tile only
-            predictions = np.argsort(outputs.cpu().detach().numpy())[:50]
             # TODO: why 50 here?
+            predictions = np.argsort(outputs.cpu().detach().numpy())[:50]
             return loss, torch.tensor([predictions]), inputs["target"]
         else:
-            raise ValueError(f"Invalid data type: {self.data_type}")
+            predictions = np.argsort(outputs.cpu().detach().numpy())
+            return (
+                loss,
+                torch.tensor([predictions]),
+                inputs["target"].cpu().detach().unsqueeze(0),
+            )
 
 
 def score_tile_mean(predictions, df):
@@ -138,3 +155,29 @@ class TileComputeMetricsFn:
             "score_tile_mean": score_tile_mean(predictions, self.df),
             "score_tile_max": score_tile_max(predictions, self.df),
         }
+
+
+class LayoutComputeMetricsFn:
+    def __init__(self, df):
+        self.df = df
+
+    def __call__(self, eval_preds):
+        # calculate accuracy using sklearn's function
+        predictions, labels = eval_preds
+
+        # filter -100 from predictions
+        new_predictions = []
+        for e in predictions:
+            new_predictions.append(np.array([x for x in e if x != -100]))
+
+        predictions = new_predictions
+
+        scores = []
+        for i in range(len(self.df)):
+            prediction = predictions[i]
+            gt_ranks = np.argsort(labels[i])
+
+            score = kendalltau(prediction, gt_ranks).statistic
+            scores.append(score)
+
+        return {"kendalltau": np.mean(scores)}
