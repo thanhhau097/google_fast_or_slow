@@ -10,11 +10,11 @@ from transformers import HfArgumentParser, TrainingArguments, set_seed
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
 
 from data_args import DataArguments
-from dataset import (LayoutDataset, TileDataset, layout_collate_fn,
-                     tile_collate_fn)
+from dataset import LayoutDataset, TileDataset, layout_collate_fn, tile_collate_fn
 from engine import CustomTrainer, LayoutComputeMetricsFn, TileComputeMetricsFn
 from model import LayoutModel, TileModel
 from model_args import ModelArguments
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 torch.set_float32_matmul_precision("high")
 logger = logging.getLogger(__name__)
@@ -50,9 +50,7 @@ def main():
         datefmt="%m/%d/%Y %H:%M:%S",
         handlers=[logging.StreamHandler(sys.stdout)],
     )
-    logger.setLevel(
-        logging.INFO if is_main_process(training_args.local_rank) else logging.WARN
-    )
+    logger.setLevel(logging.INFO if is_main_process(training_args.local_rank) else logging.WARN)
     # Set the verbosity to info of the Transformers logger (on main process only):
     if is_main_process(training_args.local_rank):
         # transformers.utils.logging.set_verbosity_info()
@@ -76,6 +74,7 @@ def main():
         search=data_args.search,
         data_folder=data_args.data_folder,
         split="train",
+        scaler=MinMaxScaler(),
     )
     val_dataset = dataset_cls(
         data_type=data_args.data_type,
@@ -84,6 +83,7 @@ def main():
         data_folder=data_args.data_folder,
         split="valid",
     )
+    val_dataset.scaler = train_dataset.scaler
 
     if data_args.data_type == "tile":
         model = TileModel(

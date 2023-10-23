@@ -36,9 +36,7 @@ class TileModel(torch.nn.Module):
 
     #         self.dropout = nn.Dropout(p=dropout)
 
-    def forward(
-        self, x_cfg: Tensor, x_feat: Tensor, x_op: Tensor, edge_index: Tensor
-    ) -> Tensor:
+    def forward(self, x_cfg: Tensor, x_feat: Tensor, x_op: Tensor, edge_index: Tensor) -> Tensor:
         # get graph features
         x = torch.concat([x_feat, self.embedding(x_op)], dim=1)
         x = self.linear(x)
@@ -72,9 +70,7 @@ class LayoutModel(torch.nn.Module):
 
         NODE_FEAT_DIM = 140
         NODE_CONFIG_FEAT_DIM = 18
-        self.linear = nn.Linear(
-            op_embedding_dim + NODE_FEAT_DIM + NODE_CONFIG_FEAT_DIM, graph_in
-        )
+        self.linear = nn.Linear(op_embedding_dim + NODE_FEAT_DIM + NODE_CONFIG_FEAT_DIM, graph_in)
         in_channels = graph_in
         self.convs = torch.nn.ModuleList()
         last_dim = hidden_channels[0]
