@@ -70,14 +70,14 @@ def main():
     else:
         dataset_cls = LayoutDataset
 
-    train_dataset = LayoutDataset(
+    train_dataset = dataset_cls(
         data_type=data_args.data_type,
         source=data_args.source,
         search=data_args.search,
         data_folder=data_args.data_folder,
         split="train",
     )
-    val_dataset = LayoutDataset(
+    val_dataset = dataset_cls(
         data_type=data_args.data_type,
         source=data_args.source,
         search=data_args.search,
