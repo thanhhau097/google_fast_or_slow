@@ -12,7 +12,7 @@
 - ** Layout: Segment the graphs into multiple parts: Our results agree with the results from the prior paper [10] that the quality of the model improves significantly with the Graph Segment Training method (Best) over a typical full graph training (Full Graph), as GST potentially introduces a better hierarchical graph pooling mechanism that leads to better generalization
 - Tile: results show that combining configuration features with node features early (early-join) is superior than combining configuration features with a reduced graph embedding later (late-join).
 - more ideas from baseline paper: https://arxiv.org/pdf/2308.13490.pdf
-
+- Graph Segment Training: https://github.com/kaidic/GST
 # Training scripts
 
 1. Tile
