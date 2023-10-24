@@ -63,12 +63,25 @@ def tile_collate_fn(batch):
 
 class LayoutDataset(Dataset):
     def __init__(
-        self, data_type, source, search, data_folder, split="train", max_configs=128, scaler=None
+        self,
+        data_type,
+        source,
+        search,
+        data_folder,
+        split="train",
+        max_configs=128,
+        scaler=None,
+        tgt_scaler=None,
     ):
         self.df = load_df(os.path.join(data_folder, data_type, source, search), split)
         self.scaler = scaler
+        self.tgt_scaler = tgt_scaler
         if self.scaler is not None:
             self.scaler = self.scaler.fit(np.concatenate(self.df["node_feat"].tolist()))
+        if self.tgt_scaler is not None:
+            self.tgt_scaler = self.tgt_scaler.fit(
+                np.concatenate(self.df["config_runtime"].tolist())[:, None]
+            )
         self.max_configs = max_configs
         self.split = split
 
@@ -94,7 +107,7 @@ class LayoutDataset(Dataset):
         node_config_ids = row["node_config_ids"].astype(np.int64)
 
         target = row["config_runtime"].astype(np.float32)
-        target = (target - np.mean(target)) / (np.std(target) + 1e-5)
+        # target = (target - np.mean(target)) / (np.std(target) + 1e-5)
 
         if sparse_node_config_feat.shape[0] < self.max_configs:
             random_indices = list(range(sparse_node_config_feat.shape[0]))
@@ -122,8 +135,8 @@ class LayoutDataset(Dataset):
 
         # normalisation
         node_config_feat = node_config_feat / 3
-        if self.scaler is not None:
-            node_feat = self.scaler.transform(node_feat)
+        node_feat = self.scaler.transform(node_feat)
+        target = self.tgt_scaler.transform(target[:, None]).squeeze(1)
 
         node_feat = torch.tensor(node_feat)
         target = torch.tensor(target)

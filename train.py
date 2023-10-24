@@ -75,6 +75,7 @@ def main():
         data_folder=data_args.data_folder,
         split="train",
         scaler=MinMaxScaler(),
+        tgt_scaler=StandardScaler(),
     )
     val_dataset = dataset_cls(
         data_type=data_args.data_type,
@@ -84,6 +85,7 @@ def main():
         split="valid",
     )
     val_dataset.scaler = train_dataset.scaler
+    val_dataset.tgt_scaler = train_dataset.tgt_scaler
 
     if data_args.data_type == "tile":
         model = TileModel(
