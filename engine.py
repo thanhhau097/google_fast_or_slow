@@ -34,7 +34,7 @@ def listMLE(y_pred, y_true, eps=1e-10, padded_value_indicator=-float("inf")):
     # shuffle for randomised tie resolution
     if len(y_pred.shape) == 1:
         y_pred = y_pred.unsqueeze(0)
-    
+
     if len(y_true.shape) == 1:
         y_true = y_true.unsqueeze(0)
 
@@ -54,7 +54,9 @@ def listMLE(y_pred, y_true, eps=1e-10, padded_value_indicator=-float("inf")):
 
     preds_sorted_by_true_minus_max = preds_sorted_by_true - max_pred_values
 
-    cumsums = torch.cumsum(preds_sorted_by_true_minus_max.exp().flip(dims=[1]), dim=1).flip(dims=[1])
+    cumsums = torch.cumsum(preds_sorted_by_true_minus_max.exp().flip(dims=[1]), dim=1).flip(
+        dims=[1]
+    )
 
     observation_loss = torch.log(cumsums + eps) - preds_sorted_by_true_minus_max
 
@@ -113,30 +115,22 @@ class CustomTrainer(Trainer):
         optimizer_grouped_parameters = [
             {
                 "params": [
-                    p
-                    for n, p in model.named_parameters()
-                    if not any(nd in n for nd in no_decay)
+                    p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)
                 ],
                 "weight_decay": self.args.weight_decay,
             },
             {
                 "params": [
-                    p
-                    for n, p in model.named_parameters()
-                    if any(nd in n for nd in no_decay)
+                    p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)
                 ],
                 "weight_decay": 0.0,
             },
         ]
-        optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(
-            self.args
-        )
+        optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(self.args)
         self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
         return self.optimizer
 
-    def prediction_step(
-        self, model, inputs, prediction_loss_only=False, ignore_keys=None
-    ):
+    def prediction_step(self, model, inputs, prediction_loss_only=False, ignore_keys=None):
         inputs = self._prepare_inputs(inputs)
         with torch.no_grad():
             with self.compute_loss_context_manager():
@@ -162,7 +156,7 @@ class CustomTrainer(Trainer):
             predictions = np.argsort(outputs.cpu().detach().numpy())[:50]
             return loss, torch.tensor([predictions]), inputs["target"]
         else:
-            predictions = np.argsort(outputs.cpu().detach().numpy())
+            predictions = outputs.cpu().detach().numpy()
             return (
                 loss,
                 torch.tensor([predictions]),
@@ -230,7 +224,7 @@ class LayoutComputeMetricsFn:
         scores = []
         for i in range(len(self.df)):
             prediction = predictions[i]
-            gt_ranks = np.argsort(labels[i])
+            gt_ranks = labels[i]
 
             score = kendalltau(prediction, gt_ranks).statistic
             scores.append(score)
