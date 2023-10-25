@@ -26,6 +26,12 @@ python train.py --do_train --do_eval --per_device_train_batch_size 1 --per_devic
 python train.py --do_train --do_eval --per_device_train_batch_size 1 --per_device_eval_batch_size 1 --learning_rate 1e-4 --warmup_ratio 0.01 --lr_scheduler_type cosine --save_strategy steps --save_steps 1000 --evaluation_strategy steps --eval_steps 1000 --logging_strategy steps --logging_steps 200 --save_total_limit 2 --load_best_model_at_end True --optim adamw_torch --weight_decay 1e-2 --num_train_epochs 1000 --metric_for_best_model eval_kendalltau --greater_is_better=True --dataloader_num_workers=8 --max_grad_norm=1.0 --data_type layout --source xla --search random --overwrite_output_dir=True --output_dir ./outputs/ --report_to none --load_best_model_at_end True --hidden_channels 32,64,64,84
 ```
 
+# Notes
+1. To fix the numpy error while loading too large file, use this command:
+```
+echo 1 | sudo tee /proc/sys/vm/overcommit_memory
+```
+
 # Some notes from kaggle discussion
 1. https://www.kaggle.com/competitions/predict-ai-model-runtime/discussion/438074
 

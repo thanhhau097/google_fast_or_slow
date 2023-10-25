@@ -20,7 +20,7 @@ def load_df(directory, split):
 
 
 class TileDataset(Dataset):
-    def __init__(self, data_type, source, search, data_folder, split="train"):
+    def __init__(self, data_type, source, search, data_folder, split="train", **kwargs):
         self.df = load_df(os.path.join(data_folder, data_type, source), split)
 
     def __len__(self):
@@ -72,6 +72,7 @@ class LayoutDataset(Dataset):
         max_configs=128,
         scaler=None,
         tgt_scaler=None,
+        **kwargs
     ):
         self.df = load_df(os.path.join(data_folder, data_type, source, search), split)
         self.scaler = scaler
