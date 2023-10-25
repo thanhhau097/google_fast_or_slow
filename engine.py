@@ -214,17 +214,23 @@ class LayoutComputeMetricsFn:
         # calculate accuracy using sklearn's function
         predictions, labels = eval_preds
 
-        # filter -100 from predictions
+        # filter -100 from predictions and labels -- hf padds if the batch is not full
         new_predictions = []
-        for e in predictions:
-            new_predictions.append(np.array([x for x in e if x != -100]))
+        new_labels = []
+        for i in range(len(predictions)):
+            new_predictions.append(np.array([x for x in predictions[i] if x != -100]))
+            new_labels.append(np.array([x for x in labels[i] if x != -100]))
 
         predictions = new_predictions
+        labels = new_labels
+        assert len(predictions) == len(self.df)
 
         scores = []
-        for i in range(len(self.df)):
-            prediction = predictions[i]
-            gt_ranks = labels[i]
+        for file_id, rows in self.df.groupby("file"):
+            idx = rows.index.tolist()
+            prediction = np.concatenate([predictions[i] for i in idx])
+            gt_ranks = np.concatenate([labels[i] for i in idx])
+            assert sum([x.shape[0] for x in rows["config_runtime"]]) == len(prediction)
 
             score = kendalltau(prediction, gt_ranks).statistic
             scores.append(score)
