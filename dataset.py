@@ -84,6 +84,29 @@ class LayoutDataset(Dataset):
             )
         self.max_configs = max_configs
         self.split = split
+        # break dataset into batch size chunks
+        if self.split == "valid":
+            new_df = []
+            for i in range(len(self.df)):
+                row = self.df.iloc[i]
+                nb_splits = int(np.ceil(row["node_config_feat"].shape[0] / max_configs))
+                all_node_cfg_feat_chunks = np.array_split(row["node_config_feat"], nb_splits)
+                all_runtime_chunks = np.array_split(row["config_runtime"], nb_splits)
+                for subset_node_cfg_feat, subset_runtime in zip(
+                    all_node_cfg_feat_chunks, all_runtime_chunks
+                ):
+                    new_df.append(
+                        {
+                            "file": row["file"],
+                            "node_config_feat": subset_node_cfg_feat,
+                            "node_feat": row["node_feat"],
+                            "node_opcode": row["node_opcode"],
+                            "edge_index": row["edge_index"],
+                            "node_config_ids": row["node_config_ids"],
+                            "config_runtime": subset_runtime,
+                        }
+                    )
+            self.df = pd.DataFrame.from_dict(new_df)
 
     def __len__(self):
         return len(self.df)
@@ -109,7 +132,9 @@ class LayoutDataset(Dataset):
         target = row["config_runtime"].astype(np.float32)
         # target = (target - np.mean(target)) / (np.std(target) + 1e-5)
 
-        if sparse_node_config_feat.shape[0] < self.max_configs:
+        if self.split == "valid":
+            random_indices = list(range(sparse_node_config_feat.shape[0]))
+        elif sparse_node_config_feat.shape[0] <= self.max_configs:
             random_indices = list(range(sparse_node_config_feat.shape[0]))
         else:
             random_indices = random.sample(
