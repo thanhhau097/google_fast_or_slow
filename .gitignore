@@ -1,4 +1,4 @@
 data/
 lightning_logs/
-outputs/
+outputs*
 __pycache__/
