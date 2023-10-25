@@ -36,7 +36,9 @@ class TileModel(torch.nn.Module):
 
     #         self.dropout = nn.Dropout(p=dropout)
 
-    def forward(self, x_cfg: Tensor, x_feat: Tensor, x_op: Tensor, edge_index: Tensor) -> Tensor:
+    def forward(
+        self, x_cfg: Tensor, x_feat: Tensor, x_op: Tensor, edge_index: Tensor
+    ) -> Tensor:
         # get graph features
         x = torch.concat([x_feat, self.embedding(x_op)], dim=1)
         x = self.linear(x)
@@ -59,8 +61,20 @@ class TileModel(torch.nn.Module):
 
 
 class LayoutModel(torch.nn.Module):
-    def __init__(self, hidden_channels, graph_in, graph_out, hidden_dim, dropout=0.0):
+    def __init__(
+        self,
+        hidden_channels,
+        graph_in,
+        graph_out,
+        hidden_dim,
+        dropout=0.0,
+        max_configs=128,
+    ):
         super().__init__()
+        # # per feature layers
+        # general_embedding_dim = 8
+        # self.shape_dimensions_layer = nn.Linear(19, general_embedding_dim)
+
         op_embedding_dim = 4  # I choose 4-dimensional embedding
         self.embedding = torch.nn.Embedding(
             120,  # 120 different op-codes
@@ -70,7 +84,9 @@ class LayoutModel(torch.nn.Module):
 
         NODE_FEAT_DIM = 140
         NODE_CONFIG_FEAT_DIM = 18
-        self.linear = nn.Linear(op_embedding_dim + NODE_FEAT_DIM + NODE_CONFIG_FEAT_DIM, graph_in)
+        self.linear = nn.Linear(
+            op_embedding_dim + NODE_FEAT_DIM + NODE_CONFIG_FEAT_DIM, graph_in
+        )
         in_channels = graph_in
         self.convs = torch.nn.ModuleList()
         last_dim = hidden_channels[0]
@@ -92,10 +108,26 @@ class LayoutModel(torch.nn.Module):
         )
 
     def forward(
-        self, x_node_cfg: Tensor, x_feat: Tensor, x_op: Tensor, edge_index: Tensor
+        self,
+        x_node_cfg: Tensor,
+        x_feat: Tensor,
+        x_op: Tensor,
+        edge_index: Tensor,
+        node_config_ids: Tensor,
     ) -> Tensor:
         # split and for loop to handle big number of graphs
         # node level features
+        node_config_feat = (
+            torch.ones(
+                (x_node_cfg.shape[0], x_feat.shape[0], 18),
+                dtype=torch.float32,
+                device=x_node_cfg.device,
+            )
+            * -2
+        )
+        node_config_feat[:, node_config_ids] = x_node_cfg
+        x_node_cfg = node_config_feat
+
         node_feat = torch.concat(
             [x_feat.unsqueeze(0).repeat((x_node_cfg.shape[0], 1, 1)), x_node_cfg], dim=2
         )
