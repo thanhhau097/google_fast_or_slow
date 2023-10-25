@@ -126,6 +126,7 @@ class LayoutModel(torch.nn.Module):
             * -2
         )
         node_config_feat[:, node_config_ids] = x_node_cfg
+        node_config_feat = node_config_feat / 3.0
         x_node_cfg = node_config_feat
 
         node_feat = torch.concat(

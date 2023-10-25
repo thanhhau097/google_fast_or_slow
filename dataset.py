@@ -167,7 +167,7 @@ class LayoutDataset(Dataset):
         # minmax scale the target, we only care about order
 
         # normalisation
-        node_config_feat = node_config_feat / 3
+        # node_config_feat = node_config_feat / 3
         node_feat = self.scaler.transform(node_feat)
         target = self.tgt_scaler.transform(target[:, None]).squeeze(1)
 
