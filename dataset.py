@@ -126,7 +126,7 @@ class LayoutDataset(Dataset):
         edge_index = torch.tensor(np.swapaxes(row["edge_index"], 0, 1).astype(np.int64))
 
         # layout only
-        sparse_node_config_feat = row["node_config_feat"].astype(np.float32)
+        sparse_node_config_feat = row["node_config_feat"].astype(np.int8)
         node_config_ids = row["node_config_ids"].astype(np.int64)
 
         target = row["config_runtime"].astype(np.float32)
@@ -147,9 +147,9 @@ class LayoutDataset(Dataset):
         node_config_feat = (
             np.ones(
                 (sparse_node_config_feat.shape[0], node_feat.shape[0], 18),
-                dtype=np.float32,
+                dtype=np.int8,
             )
-            * -1
+            * -2  # -1 means standard config, so -2 denotes not configurable node
         )
         node_config_feat[:, node_config_ids] = sparse_node_config_feat
 
@@ -159,7 +159,9 @@ class LayoutDataset(Dataset):
         # minmax scale the target, we only care about order
 
         # normalisation
-        node_config_feat = node_config_feat / 3
+        node_config_feat = (
+            node_config_feat + 2
+        ).long()  # -2 is min and 5 is max so offset to [0, 7] for embd layer
         node_feat = self.scaler.transform(node_feat)
         target = self.tgt_scaler.transform(target[:, None]).squeeze(1)
 

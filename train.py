@@ -83,6 +83,7 @@ def main():
         search=data_args.search,
         data_folder=data_args.data_folder,
         split="valid",
+        max_configs=256,
     )
     val_dataset.scaler = train_dataset.scaler
     val_dataset.tgt_scaler = train_dataset.tgt_scaler
