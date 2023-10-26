@@ -69,7 +69,7 @@ class LayoutDataset(Dataset):
         search,
         data_folder,
         split="train",
-        max_configs=128,
+        max_configs=64,
         scaler=None,
         tgt_scaler=None,
     ):

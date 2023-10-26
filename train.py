@@ -12,7 +12,7 @@ from transformers.trainer_utils import get_last_checkpoint, is_main_process
 from data_args import DataArguments
 from dataset import LayoutDataset, TileDataset, layout_collate_fn, tile_collate_fn
 from engine import CustomTrainer, LayoutComputeMetricsFn, TileComputeMetricsFn
-from model import LayoutModel, TileModel
+from model import LayoutModel, TileModel, GATLayoutModel
 from model_args import ModelArguments
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
@@ -83,7 +83,7 @@ def main():
         search=data_args.search,
         data_folder=data_args.data_folder,
         split="valid",
-        max_configs=256,
+        # max_configs=128,
     )
     val_dataset.scaler = train_dataset.scaler
     val_dataset.tgt_scaler = train_dataset.tgt_scaler
@@ -99,7 +99,7 @@ def main():
         collate_fn = tile_collate_fn
         compute_metrics = TileComputeMetricsFn(val_dataset.df)
     else:
-        model = LayoutModel(
+        model = GATLayoutModel(
             hidden_channels=[int(x) for x in model_args.hidden_channels.split(",")],
             graph_in=model_args.graph_in,
             graph_out=model_args.graph_out,
