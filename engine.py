@@ -168,10 +168,12 @@ class CustomTrainer(Trainer):
             return loss, torch.tensor([predictions]), inputs["target"]
         else:
             predictions = outputs.cpu().detach().numpy()
+            target = inputs["target"].cpu().detach().unsqueeze(0)
+
             return (
                 loss,
                 torch.tensor([predictions]),
-                inputs["target"].cpu().detach().unsqueeze(0),
+                target,
             )
 
 
@@ -197,10 +199,17 @@ def score_tile_max(predictions, df):
 
 
 class TileComputeMetricsFn:
-    def __init__(self, df):
+    def __init__(self, df, split="valid"):
         self.df = df
+        self.split = split
 
     def __call__(self, eval_preds):
+        if self.split == "test":
+            return {
+                "score_tile_mean": 0.0,
+                "score_tile_max": 0.0,
+            }
+
         # calculate accuracy using sklearn's function
         predictions, labels = eval_preds
 
@@ -218,10 +227,14 @@ class TileComputeMetricsFn:
 
 
 class LayoutComputeMetricsFn:
-    def __init__(self, df):
+    def __init__(self, df, split="valid"):
         self.df = df
+        self.split = split
 
     def __call__(self, eval_preds):
+        if self.split == "test":
+            return {"kendalltau": 0.0}
+
         # calculate accuracy using sklearn's function
         predictions, labels = eval_preds
 
