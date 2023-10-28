@@ -83,7 +83,7 @@ def main():
         search=data_args.search,
         data_folder=data_args.data_folder,
         split="valid",
-        # max_configs=128,
+        max_configs=512,
     )
     val_dataset.scaler = train_dataset.scaler
     val_dataset.tgt_scaler = train_dataset.tgt_scaler
@@ -105,6 +105,7 @@ def main():
             graph_out=model_args.graph_out,
             hidden_dim=model_args.hidden_dim,
             dropout=model_args.dropout,
+            gat_droprate=model_args.gat_dropout,
         )
         collate_fn = layout_collate_fn
         compute_metrics = LayoutComputeMetricsFn(val_dataset.df)

@@ -148,6 +148,21 @@ class LayoutModel(torch.nn.Module):
         return x.reshape(-1)
 
 
+class ChannelAttention(nn.Module):
+    def __init__(self, input_dim, act=nn.ReLU, reduction=8):
+        super().__init__()
+        self.linear1 = nn.Linear(input_dim, int(input_dim / reduction))
+        self.linear2 = nn.Linear(int(input_dim / reduction), input_dim)
+        self.sigmoid = nn.Sigmoid()
+        self.act = act(inplace=True)
+
+    def forward(self, x):
+        tmp = self.act(self.linear1(x))
+        tmp = self.linear2(tmp)
+        tmp = self.sigmoid(tmp)
+        return tmp * x
+
+
 class LinearActNorm(nn.Module):
     def __init__(self, input_dim, output_dim, act):
         super().__init__()
@@ -156,10 +171,13 @@ class LinearActNorm(nn.Module):
         self.linear.bias.data.fill_(0.01)
         self.act = act(inplace=True)
         self.norm = GraphNorm(output_dim)
+        self.attn = ChannelAttention(output_dim)
 
     def forward(self, x, edge_index, batch):
-        x = self.norm(self.act(self.linear(x)), batch)
-        # x = self.act(self.linear(x))
+        # x = self.norm(self.act(self.linear(x)), batch)
+        x = self.norm(self.linear(x), batch)
+        x = self.attn(x)
+        x = self.act(x)
         return x
 
 
@@ -174,14 +192,19 @@ class GATActBN(nn.Module):
         self.bn = GraphNorm(channels)
         if droprate > 0:
             self.dropout = nn.Dropout(p=droprate)
+        print(f"Inner Dropout {droprate}")
         self.droprate = droprate
+        self.attn = ChannelAttention(channels)
 
     def forward(self, x, edge_index, batch):
-        tmp = self.bn(self.act(self.conv(x, edge_index)), batch)
-        # tmp = self.act(self.conv(x, edge_index))
+        tmp = self.bn(self.conv(x, edge_index), batch)
+        # tmp = self.bn(self.act(self.conv(x, edge_index)), batch)
+        x = self.attn(x)
+        tmp = tmp + x
+        tmp = self.act(tmp)
         if self.droprate > 0:
             tmp = self.dropout(tmp)
-        return tmp + x
+        return tmp
 
 
 class GATLayoutModel(torch.nn.Module):
@@ -208,7 +231,7 @@ class GATLayoutModel(torch.nn.Module):
             5 + 3, layout_embedding_dim
         )  # [1-5] + [0,-1,-2]
         assert len(hidden_channels) > 0
-
+        print(f"Dropout {dropout}")
         NODE_FEAT_DIM = 140
         NODE_CONFIG_FEAT_DIM = 18
         self.linear = LinearActNorm(
@@ -232,13 +255,15 @@ class GATLayoutModel(torch.nn.Module):
 
         self.dense = torch.nn.Sequential(
             nn.Linear(graph_out, hidden_dim),
+            ChannelAttention(hidden_dim),
             nn.Dropout(p=dropout),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
+            ChannelAttention(hidden_dim),
             nn.Dropout(p=dropout),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, 1),
+            nn.ReLU(inplace=True),
         )
+        self.classifier = nn.Linear(hidden_dim, 1)
 
     def forward(
         self, x_node_cfg: Tensor, x_feat: Tensor, x_op: Tensor, edge_index: Tensor
@@ -280,8 +305,11 @@ class GATLayoutModel(torch.nn.Module):
         # x = (x - torch.mean(x)) / (torch.std(x) + 1e-5)
 
         # be careful that we have a batch of graphs with the same config here
-        # x = global_mean_pool(x, batch)
-        x = x.mean(1)
+        # x = global_mean_pool(x, batch.batch)
+        x = x.mean(1)  # nb_configs, channels
         x = self.dense(x)
+        # Cross config pooling
+        x = x - x.mean(0)
+        x = self.classifier(x)
 
         return x.reshape(-1)

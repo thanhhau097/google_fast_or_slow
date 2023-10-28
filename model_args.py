@@ -17,3 +17,4 @@ class ModelArguments:
     graph_out: int = field(default=256, metadata={"help": "output graph embedding size"})
     hidden_dim: int = field(default=256, metadata={"help": "hidden dimension"})
     dropout: float = field(default=0.2, metadata={"help": "dropout rate"})
+    gat_dropout: float = field(default=0.2, metadata={"help": "dropout rate at gcn level"})
