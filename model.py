@@ -143,6 +143,7 @@ class LayoutModel(torch.nn.Module):
 
         # be careful that we have a batch of graphs with the same config here
         x = x.mean(1)
+        x = x - x.mean(0)
         x = self.dense(x)
 
         return x.reshape(-1)
