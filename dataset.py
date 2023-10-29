@@ -8,6 +8,38 @@ from torch.utils.data import Dataset
 from tqdm import tqdm
 
 
+def vec_to_int(vec: np.ndarray) -> np.ndarray:
+    # Powers of 7: [1, 7, 49, 343, 2401, 16807]
+    powers_of_7 = np.array([7**i for i in range(6)])
+    return np.dot(vec, powers_of_7).astype(np.int32)
+
+
+def int_to_vec(integers: np.ndarray) -> np.ndarray:
+    # Create an empty array of shape (N, 6) to store the results
+    vectors = np.empty((len(integers), 6), dtype=np.int64)
+
+    # Divide by powers of 7 and take the remainder to find each digit
+    for i in range(6):
+        vectors[:, i] = integers % 7
+        integers //= 7
+
+    return vectors.astype(np.int32)
+
+
+def compress_configs(node_configs):
+    vecs = node_configs.reshape(-1, 6).astype(np.int32) + 1
+    ints = vec_to_int(vecs)
+    ints = ints.reshape(node_configs.shape[0], node_configs.shape[1], 3)
+    return ints
+
+
+def decompress_configs(node_configs):
+    ints = node_configs.astype(np.int32).reshape(-1)
+    vecs = int_to_vec(ints)
+    vecs = vecs.reshape(node_configs.shape[0], -1, 18) - 1
+    return vecs
+
+
 def load_df(directory, split):
     path = os.path.join(directory, split)
     files = os.listdir(path)
@@ -75,9 +107,33 @@ class LayoutDataset(Dataset):
         max_configs=64,
         scaler=None,
         tgt_scaler=None,
+        use_compressed=True,
         **kwargs
     ):
-        self.df = load_df(os.path.join(data_folder, data_type, source, search), split)
+        if search == "mix":
+            # in mix mode, we load all the data both from default and random
+            if not use_compressed:
+                default_df = load_df(os.path.join(data_folder, data_type, source, "default"), split)
+                random_df = load_df(os.path.join(data_folder, data_type, source, "random"), split)
+            else:
+                default_df = load_df(
+                    os.path.join(data_folder, data_type, source + "_compressed", "default"), split
+                )
+                random_df = load_df(
+                    os.path.join(data_folder, data_type, source + "_compressed", "random"), split
+                )
+            default_df["search"] = "default"
+            random_df["search"] = "random"
+
+            self.df = pd.concat([default_df, random_df])
+        else:
+            if not use_compressed:
+                self.df = load_df(os.path.join(data_folder, data_type, source, search), split)
+            else:
+                self.df = load_df(os.path.join(data_folder, data_type, source + "_compressed", search), split)
+
+            self.df["search"] = search
+
         self.scaler = scaler
         self.tgt_scaler = tgt_scaler
         if self.scaler is not None:
@@ -110,6 +166,7 @@ class LayoutDataset(Dataset):
                             "edge_index": row["edge_index"],
                             "node_config_ids": row["node_config_ids"],
                             "config_runtime": subset_runtime,
+                            "search": row["search"],
                         }
                     )
             self.df = pd.DataFrame.from_dict(new_df)
@@ -132,7 +189,8 @@ class LayoutDataset(Dataset):
         edge_index = torch.tensor(np.swapaxes(row["edge_index"], 0, 1).astype(np.int64))
 
         # layout only
-        sparse_node_config_feat = row["node_config_feat"].astype(np.int8)
+        # sparse_node_config_feat = row["node_config_feat"].astype(np.int8)
+        sparse_node_config_feat = decompress_configs(row["node_config_feat"]).astype(np.int8)
         node_config_ids = row["node_config_ids"].astype(np.int64)
 
         target = row["config_runtime"].astype(np.float32)

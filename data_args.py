@@ -16,3 +16,6 @@ class DataArguments:
     )
     source: str = field(default="xla", metadata={"help": "'xla' or 'nlp'"})
     search: str = field(default="default", metadata={"help": "'default' or 'random'"})
+    use_compressed: bool = field(
+        default=True, metadata={"help": "Whether to use compressed data"}
+    )

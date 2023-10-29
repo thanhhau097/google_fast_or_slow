@@ -249,14 +249,20 @@ class LayoutComputeMetricsFn:
         labels = new_labels
         assert len(predictions) == len(self.df)
 
-        scores = []
-        for file_id, rows in self.df.groupby("file"):
-            idx = rows.index.tolist()
-            prediction = np.concatenate([predictions[i] for i in idx])
-            gt_ranks = np.concatenate([labels[i] for i in idx])
-            assert sum([x.shape[0] for x in rows["config_runtime"]]) == len(prediction)
+        searches = self.df["search"].unique()
+        score_dict = {}
+        for search in searches:
+            scores = []
+            for file_id, rows in self.df[self.df["search"] == search].groupby("file"):
+                idx = rows.index.tolist()
+                prediction = np.concatenate([predictions[i] for i in idx])
+                gt_ranks = np.concatenate([labels[i] for i in idx])
+                assert sum([x.shape[0] for x in rows["config_runtime"]]) == len(prediction)
 
-            score = kendalltau(prediction, gt_ranks).statistic
-            scores.append(score)
+                score = kendalltau(prediction, gt_ranks).statistic
+                scores.append(score)
 
-        return {"kendalltau": np.mean(scores)}
+            score_dict["kendalltau_" + search] = np.mean(scores)
+
+        score_dict["kendalltau"] = np.mean(list(score_dict.values()))
+        return score_dict
