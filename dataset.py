@@ -72,7 +72,7 @@ class LayoutDataset(Dataset):
         search,
         data_folder,
         split="train",
-        max_configs=128,
+        max_configs=64,
         scaler=None,
         tgt_scaler=None,
         **kwargs
@@ -161,15 +161,12 @@ class LayoutDataset(Dataset):
 
         # node_config_feat = torch.tensor(node_config_feat)
 
-        node_config_feat = torch.tensor(sparse_node_config_feat)
+        node_config_feat = torch.tensor(sparse_node_config_feat, dtype=torch.long)
 
         target = target[random_indices]
         # minmax scale the target, we only care about order
 
         # normalisation
-        node_config_feat = (
-            node_config_feat + 2
-        ).long()  # -2 is min and 5 is max so offset to [0, 7] for embd layer
         node_feat = self.scaler.transform(node_feat)
         target = self.tgt_scaler.transform(target[:, None]).squeeze(1)
 

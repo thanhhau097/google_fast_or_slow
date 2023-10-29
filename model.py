@@ -120,13 +120,17 @@ class LayoutModel(torch.nn.Module):
         node_config_feat = (
             torch.ones(
                 (x_node_cfg.shape[0], x_feat.shape[0], 18),
-                dtype=torch.float32,
+                dtype=torch.long,
                 device=x_node_cfg.device,
             )
             * -2
         )
         node_config_feat[:, node_config_ids] = x_node_cfg
-        node_config_feat = node_config_feat / 3.0
+        node_config_feat = (
+            node_config_feat + 2
+        )  # -2 is min and 5 is max so offset to [0, 7] for embd layer
+
+        # node_config_feat = node_config_feat / 3.0
         x_node_cfg = node_config_feat
 
         # x_node_cfg (num_configs, num_nodes, 18)
