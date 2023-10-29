@@ -4,11 +4,11 @@ from typing import Dict
 import numpy as np
 import torch
 import torch.nn.functional as F
+from pytorchltr.loss import PairwiseHingeLoss
 from scipy.stats import kendalltau
 from torch import nn
 from transformers import Trainer
 from transformers.trainer_pt_utils import nested_detach
-from pytorchltr.loss import PairwiseHingeLoss
 
 
 # https://pytorchltr.readthedocs.io/en/stable/loss.html
@@ -17,7 +17,9 @@ def pairwise_hinge_loss(y_pred, y_true):
 
     y_pred = y_pred.unsqueeze(0)
     y_true = y_true.unsqueeze(0)
-    return loss_fn(y_pred, y_true, n=torch.tensor([y_pred.shape[1]], device=y_pred.device)).mean()
+    return loss_fn(
+        y_pred, y_true, n=torch.tensor([y_pred.shape[1]], device=y_pred.device)
+    ).mean()
 
 
 # https://github.dev/allegro/allRank/blob/master/allrank/models/losses/listMLE.py
@@ -54,9 +56,9 @@ def listMLE(y_pred, y_true, eps=1e-10, padded_value_indicator=-float("inf")):
 
     preds_sorted_by_true_minus_max = preds_sorted_by_true - max_pred_values
 
-    cumsums = torch.cumsum(preds_sorted_by_true_minus_max.exp().flip(dims=[1]), dim=1).flip(
-        dims=[1]
-    )
+    cumsums = torch.cumsum(
+        preds_sorted_by_true_minus_max.exp().flip(dims=[1]), dim=1
+    ).flip(dims=[1])
 
     observation_loss = torch.log(cumsums + eps) - preds_sorted_by_true_minus_max
 
@@ -89,6 +91,7 @@ class CustomTrainer(Trainer):
                 inputs["node_feat"],
                 inputs["node_opcode"],
                 inputs["edge_index"],
+                inputs["node_config_ids"],
             )
         loss = self.loss_fn(outputs, inputs["target"].to(device))
 
@@ -115,22 +118,30 @@ class CustomTrainer(Trainer):
         optimizer_grouped_parameters = [
             {
                 "params": [
-                    p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)
+                    p
+                    for n, p in model.named_parameters()
+                    if not any(nd in n for nd in no_decay)
                 ],
                 "weight_decay": self.args.weight_decay,
             },
             {
                 "params": [
-                    p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)
+                    p
+                    for n, p in model.named_parameters()
+                    if any(nd in n for nd in no_decay)
                 ],
                 "weight_decay": 0.0,
             },
         ]
-        optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(self.args)
+        optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(
+            self.args
+        )
         self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
         return self.optimizer
 
-    def prediction_step(self, model, inputs, prediction_loss_only=False, ignore_keys=None):
+    def prediction_step(
+        self, model, inputs, prediction_loss_only=False, ignore_keys=None
+    ):
         inputs = self._prepare_inputs(inputs)
         with torch.no_grad():
             with self.compute_loss_context_manager():
@@ -157,10 +168,12 @@ class CustomTrainer(Trainer):
             return loss, torch.tensor([predictions]), inputs["target"]
         else:
             predictions = outputs.cpu().detach().numpy()
+            target = inputs["target"].cpu().detach().unsqueeze(0)
+
             return (
                 loss,
                 torch.tensor([predictions]),
-                inputs["target"].cpu().detach().unsqueeze(0),
+                target,
             )
 
 
@@ -186,10 +199,17 @@ def score_tile_max(predictions, df):
 
 
 class TileComputeMetricsFn:
-    def __init__(self, df):
+    def __init__(self, df, split="valid"):
         self.df = df
+        self.split = split
 
     def __call__(self, eval_preds):
+        if self.split == "test":
+            return {
+                "score_tile_mean": 0.0,
+                "score_tile_max": 0.0,
+            }
+
         # calculate accuracy using sklearn's function
         predictions, labels = eval_preds
 
@@ -207,10 +227,14 @@ class TileComputeMetricsFn:
 
 
 class LayoutComputeMetricsFn:
-    def __init__(self, df):
+    def __init__(self, df, split="valid"):
         self.df = df
+        self.split = split
 
     def __call__(self, eval_preds):
+        if self.split == "test":
+            return {"kendalltau": 0.0}
+
         # calculate accuracy using sklearn's function
         predictions, labels = eval_preds
 

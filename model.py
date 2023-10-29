@@ -36,7 +36,9 @@ class TileModel(torch.nn.Module):
 
     #         self.dropout = nn.Dropout(p=dropout)
 
-    def forward(self, x_cfg: Tensor, x_feat: Tensor, x_op: Tensor, edge_index: Tensor) -> Tensor:
+    def forward(
+        self, x_cfg: Tensor, x_feat: Tensor, x_op: Tensor, edge_index: Tensor
+    ) -> Tensor:
         # get graph features
         x = torch.concat([x_feat, self.embedding(x_op)], dim=1)
         x = self.linear(x)
@@ -59,18 +61,32 @@ class TileModel(torch.nn.Module):
 
 
 class LayoutModel(torch.nn.Module):
-    def __init__(self, hidden_channels, graph_in, graph_out, hidden_dim, dropout=0.0):
+    def __init__(
+        self,
+        hidden_channels,
+        graph_in,
+        graph_out,
+        hidden_dim,
+        dropout=0.0,
+        op_embedding_dim=4,
+        layout_embedding_dim=4,
+    ):
         super().__init__()
-        op_embedding_dim = 4  # I choose 4-dimensional embedding
-        self.embedding = torch.nn.Embedding(
+        self.embedding_op = torch.nn.Embedding(
             120,  # 120 different op-codes
             op_embedding_dim,
         )
+        self.embedding_layout = torch.nn.Embedding(
+            5 + 3, layout_embedding_dim
+        )  # [1-5] + [0,-1,-2]
         assert len(hidden_channels) > 0
 
         NODE_FEAT_DIM = 140
         NODE_CONFIG_FEAT_DIM = 18
-        self.linear = nn.Linear(op_embedding_dim + NODE_FEAT_DIM + NODE_CONFIG_FEAT_DIM, graph_in)
+        self.linear = nn.Linear(
+            op_embedding_dim + NODE_FEAT_DIM + (NODE_CONFIG_FEAT_DIM * layout_embedding_dim),
+            graph_in,
+        )
         in_channels = graph_in
         self.convs = torch.nn.ModuleList()
         last_dim = hidden_channels[0]
@@ -92,21 +108,52 @@ class LayoutModel(torch.nn.Module):
         )
 
     def forward(
-        self, x_node_cfg: Tensor, x_feat: Tensor, x_op: Tensor, edge_index: Tensor
+        self,
+        x_node_cfg: Tensor,
+        x_feat: Tensor,
+        x_op: Tensor,
+        edge_index: Tensor,
+        node_config_ids: Tensor,
     ) -> Tensor:
         # split and for loop to handle big number of graphs
         # node level features
-        node_feat = torch.concat(
-            [x_feat.unsqueeze(0).repeat((x_node_cfg.shape[0], 1, 1)), x_node_cfg], dim=2
+        node_config_feat = (
+            torch.ones(
+                (x_node_cfg.shape[0], x_feat.shape[0], 18),
+                dtype=torch.long,
+                device=x_node_cfg.device,
+            )
+            * -2
         )
+        node_config_feat[:, node_config_ids] = x_node_cfg
+        node_config_feat = (
+            node_config_feat + 2
+        )  # -2 is min and 5 is max so offset to [0, 7] for embd layer
+
+        # node_config_feat = node_config_feat / 3.0
+        x_node_cfg = node_config_feat
+
+        # x_node_cfg (num_configs, num_nodes, 18)
+        # x_feat (num_nodes, 140)
+        # x_op (num_nodes,)
+
+        x_node_cfg = self.embedding_layout(x_node_cfg)  # (num_configs, num_nodes, 18, embd_width)
+        x_node_cfg = x_node_cfg.view(
+            x_node_cfg.shape[0], x_node_cfg.shape[1], -1
+        )  # (num_configs, num_nodes, 18*embd_width)
+        x_feat = x_feat.unsqueeze(0).repeat(
+            (x_node_cfg.shape[0], 1, 1)
+        )  # (num_configs, num_nodes, 140)
+        x_op = (
+            self.embedding_op(x_op).unsqueeze(0).repeat((x_node_cfg.shape[0], 1, 1))
+        )  # (num_configs, num_nodes, embd_width)
+
+        node_feat = torch.concat([x_feat, x_node_cfg], dim=2)
         x = torch.concat(
-            [
-                node_feat,
-                self.embedding(x_op).unsqueeze(0).repeat((x_node_cfg.shape[0], 1, 1)),
-            ],
+            [node_feat, x_op],
             dim=2,
-        )
-        x = self.linear(x)
+        )  # (num_configs, num_nodes, 140+(18*embd_layout_width)+embd_op_width)
+        x = self.linear(x)  # .relu()
 
         # pass though conv layers
         for conv in self.convs:
