@@ -86,6 +86,7 @@ def main():
         search=data_args.search,
         data_folder=data_args.data_folder,
         split="valid",
+        max_configs=256,
     )
     if data_args.data_type == "layout":
         val_dataset.scaler = train_dataset.scaler
