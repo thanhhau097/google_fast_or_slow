@@ -85,7 +85,7 @@ class LayoutDataset(Dataset):
         self.max_configs = max_configs
         self.split = split
         # break dataset into batch size chunks
-        if self.split == "valid":
+        if self.split in ["valid", "valid_dedup", "test"]:
             new_df = []
             for i in range(len(self.df)):
                 row = self.df.iloc[i]
@@ -132,7 +132,7 @@ class LayoutDataset(Dataset):
         target = row["config_runtime"].astype(np.float32)
         # target = (target - np.mean(target)) / (np.std(target) + 1e-5)
 
-        if self.split == "valid":
+        if self.split in ["valid", "valid_dedup", "test"]:
             random_indices = list(range(sparse_node_config_feat.shape[0]))
         elif sparse_node_config_feat.shape[0] <= self.max_configs:
             random_indices = list(range(sparse_node_config_feat.shape[0]))
