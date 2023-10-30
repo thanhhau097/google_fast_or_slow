@@ -107,10 +107,31 @@ class LayoutModel(torch.nn.Module):
         )
 
     def forward(
-        self, x_node_cfg: Tensor, x_feat: Tensor, x_op: Tensor, edge_index: Tensor
+        self,
+        x_node_cfg: Tensor,
+        x_feat: Tensor,
+        x_op: Tensor,
+        edge_index: Tensor,
+        node_config_ids: Tensor,
     ) -> Tensor:
         # split and for loop to handle big number of graphs
         # node level features
+        node_config_feat = (
+            torch.ones(
+                (x_node_cfg.shape[0], x_feat.shape[0], 18),
+                dtype=torch.long,
+                device=x_node_cfg.device,
+            )
+            * -2
+        )
+        node_config_feat[:, node_config_ids] = x_node_cfg
+        node_config_feat = (
+            node_config_feat + 2
+        )  # -2 is min and 5 is max so offset to [0, 7] for embd layer
+
+        # node_config_feat = node_config_feat / 3.0
+        x_node_cfg = node_config_feat
+
         # x_node_cfg (num_configs, num_nodes, 18)
         # x_feat (num_nodes, 140)
         # x_op (num_nodes,)
@@ -266,13 +287,34 @@ class GATLayoutModel(torch.nn.Module):
         self.classifier = nn.Linear(hidden_dim, 1)
 
     def forward(
-        self, x_node_cfg: Tensor, x_feat: Tensor, x_op: Tensor, edge_index: Tensor
+        self,
+        x_node_cfg: Tensor,
+        x_feat: Tensor,
+        x_op: Tensor,
+        edge_index: Tensor,
+        node_config_ids: Tensor,
     ) -> Tensor:
         # split and for loop to handle big number of graphs
         # node level features
         # x_node_cfg (num_configs, num_nodes, 18)
         # x_feat (num_nodes, 140)
         # x_op (num_nodes,)
+        node_config_feat = (
+            torch.ones(
+                (x_node_cfg.shape[0], x_feat.shape[0], 18),
+                dtype=torch.long,
+                device=x_node_cfg.device,
+            )
+            * -2
+        )
+        node_config_feat[:, node_config_ids] = x_node_cfg
+        node_config_feat = (
+            node_config_feat + 2
+        )  # -2 is min and 5 is max so offset to [0, 7] for embd layer
+
+        # node_config_feat = node_config_feat / 3.0
+        x_node_cfg = node_config_feat
+
         x_node_cfg = self.embedding_layout(x_node_cfg)  # (num_configs, num_nodes, 18, embd_width)
         x_node_cfg = x_node_cfg.view(
             x_node_cfg.shape[0], x_node_cfg.shape[1], -1

@@ -6,15 +6,16 @@ import numpy as np
 import pandas as pd
 import torch
 import transformers
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from transformers import HfArgumentParser, TrainingArguments, set_seed
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
 
 from data_args import DataArguments
-from dataset import LayoutDataset, TileDataset, layout_collate_fn, tile_collate_fn
+from dataset import (LayoutDataset, TileDataset, layout_collate_fn,
+                     tile_collate_fn)
 from engine import CustomTrainer, LayoutComputeMetricsFn, TileComputeMetricsFn
 from model import LayoutModel, TileModel, GATLayoutModel
 from model_args import ModelArguments
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 torch.set_float32_matmul_precision("high")
 logger = logging.getLogger(__name__)
@@ -50,7 +51,9 @@ def main():
         datefmt="%m/%d/%Y %H:%M:%S",
         handlers=[logging.StreamHandler(sys.stdout)],
     )
-    logger.setLevel(logging.INFO if is_main_process(training_args.local_rank) else logging.WARN)
+    logger.setLevel(
+        logging.INFO if is_main_process(training_args.local_rank) else logging.WARN
+    )
     # Set the verbosity to info of the Transformers logger (on main process only):
     if is_main_process(training_args.local_rank):
         # transformers.utils.logging.set_verbosity_info()
@@ -85,8 +88,9 @@ def main():
         split="valid",
         max_configs=512,
     )
-    val_dataset.scaler = train_dataset.scaler
-    val_dataset.tgt_scaler = train_dataset.tgt_scaler
+    if data_args.data_type == "layout":
+        val_dataset.scaler = train_dataset.scaler
+        val_dataset.tgt_scaler = train_dataset.tgt_scaler
 
     if data_args.data_type == "tile":
         model = TileModel(
@@ -156,6 +160,80 @@ def main():
         metrics = trainer.evaluate()
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
+
+    # Inference
+    if training_args.do_predict:
+        logger.info("*** Predict ***")
+        test_dataset = dataset_cls(
+            data_type=data_args.data_type,
+            source=data_args.source,
+            search=data_args.search,
+            data_folder=data_args.data_folder,
+            split="test",
+        )
+
+        if data_args.data_type == "layout":
+            test_dataset.scaler = train_dataset.scaler
+            test_dataset.tgt_scaler = train_dataset.tgt_scaler
+
+            trainer.compute_metrics = LayoutComputeMetricsFn(
+                test_dataset.df, split="test"
+            )
+        else:
+            trainer.compute_metrics = TileComputeMetricsFn(
+                test_dataset.df, split="test"
+            )
+
+        predictions = trainer.predict(test_dataset).predictions
+
+        new_predictions = []
+        for e in predictions:
+            # only get top 5
+            new_predictions.append(np.array([x for x in e if x != -100]))
+
+        predictions = new_predictions
+
+        prediction_files = []
+        prediction_indices = []
+        if data_args.data_type == "tile":
+            predictions = [pred[:5] for pred in predictions]
+
+            for file_id, prediction in zip(test_dataset.df["file"], predictions):
+                prediction_files.append("tile:xla:" + file_id[:-4])
+                prediction_indices.append(";".join([str(int(e)) for e in prediction]))
+        else:
+            for file_id, rows in test_dataset.df.groupby("file"):
+                idx = rows.index.tolist()
+                prediction = np.concatenate([predictions[i] for i in idx])
+                prediction = np.argsort(prediction)
+                prediction_files.append(
+                    f"{data_args.data_type}:{data_args.source}:{data_args.search}:"
+                    + file_id[:-4]
+                )
+                prediction_indices.append(";".join([str(int(e)) for e in prediction]))
+
+        # dump to csv files
+        submission_df = pd.DataFrame.from_dict(
+            {
+                "ID": prediction_files,
+                "TopConfigs": prediction_indices,
+            }
+        )
+        if not os.path.exists("outputs_csv"):
+            os.makedirs("outputs_csv")
+
+        if data_args.data_type == "tile":
+            submission_df.to_csv(
+                os.path.join("outputs_csv", "tile:xla:submission.csv"), index=False
+            )
+        else:
+            submission_df.to_csv(
+                os.path.join(
+                    "outputs_csv",
+                    f"{data_args.data_type}:{data_args.source}:{data_args.search}:submission.csv",
+                ),
+                index=False,
+            )
 
 
 if __name__ == "__main__":

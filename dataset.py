@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
+from tqdm import tqdm
 
 
 def load_df(directory, split):
@@ -12,7 +13,7 @@ def load_df(directory, split):
     files = os.listdir(path)
     list_df = []
 
-    for file in files:
+    for file in tqdm(files):
         d = dict(np.load(os.path.join(path, file)))
         d["file"] = file
         list_df.append(d)
@@ -20,7 +21,7 @@ def load_df(directory, split):
 
 
 class TileDataset(Dataset):
-    def __init__(self, data_type, source, search, data_folder, split="train"):
+    def __init__(self, data_type, source, search, data_folder, split="train", **kwargs):
         self.df = load_df(os.path.join(data_folder, data_type, source), split)
 
     def __len__(self):
@@ -72,6 +73,7 @@ class LayoutDataset(Dataset):
         max_configs=64,
         scaler=None,
         tgt_scaler=None,
+        **kwargs
     ):
         self.df = load_df(os.path.join(data_folder, data_type, source, search), split)
         self.scaler = scaler
@@ -143,39 +145,34 @@ class LayoutDataset(Dataset):
 
         sparse_node_config_feat = sparse_node_config_feat[random_indices]
 
-        # convert node_config_feat to (num_configs, num_nodes, num_features)
-        node_config_feat = (
-            np.ones(
-                (sparse_node_config_feat.shape[0], node_feat.shape[0], 18),
-                dtype=np.int8,
-            )
-            * -2  # -1 means standard config, so -2 denotes not configurable node
-        )
-        node_config_feat[:, node_config_ids] = sparse_node_config_feat
-
-        node_config_feat = torch.tensor(node_config_feat)
+        node_config_feat = torch.tensor(sparse_node_config_feat, dtype=torch.long)
 
         target = target[random_indices]
         # minmax scale the target, we only care about order
 
         # normalisation
-        node_config_feat = (
-            node_config_feat + 2
-        ).long()  # -2 is min and 5 is max so offset to [0, 7] for embd layer
         node_feat = self.scaler.transform(node_feat)
         target = self.tgt_scaler.transform(target[:, None]).squeeze(1)
 
         node_feat = torch.tensor(node_feat)
         target = torch.tensor(target)
-        return node_config_feat, node_feat, node_opcode, edge_index, target
+        return (
+            node_config_feat,
+            node_feat,
+            node_opcode,
+            edge_index,
+            torch.tensor(node_config_ids),
+            target,
+        )
 
 
 def layout_collate_fn(batch):
-    node_config_feat, node_feat, node_opcode, edge_index, target = zip(*batch)
+    node_config_feat, node_feat, node_opcode, edge_index, node_config_ids, target = zip(*batch)
     node_config_feat = torch.stack(node_config_feat)[0]
     node_feat = torch.stack(node_feat)[0]
     node_opcode = torch.stack(node_opcode)[0]
     edge_index = torch.stack(edge_index)[0]
+    node_config_ids = torch.stack(node_config_ids)[0]
     target = torch.stack(target)[0]
 
     # only take one graph
@@ -184,5 +181,6 @@ def layout_collate_fn(batch):
         "node_feat": node_feat,
         "node_opcode": node_opcode,
         "edge_index": edge_index,
+        "node_config_ids": node_config_ids,
         "target": target,
     }
