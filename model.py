@@ -104,8 +104,10 @@ class LayoutModel(torch.nn.Module):
             nn.Linear(hidden_dim, hidden_dim),
             nn.Dropout(p=dropout),
             nn.ReLU(),
-            nn.Linear(hidden_dim, 1),
+            # nn.Linear(hidden_dim, 1),
         )
+
+        self.classifier = nn.Linear(hidden_dim, 1)
 
     def forward(
         self,
@@ -166,5 +168,8 @@ class LayoutModel(torch.nn.Module):
         # be careful that we have a batch of graphs with the same config here
         x = x.mean(1)
         x = self.dense(x)
+
+        x = x - x.mean(0)
+        x = self.classifier(x)
 
         return x.reshape(-1)

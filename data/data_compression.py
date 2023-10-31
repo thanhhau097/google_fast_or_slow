@@ -195,10 +195,10 @@ if __name__ == "__main__":
                         # assert test_dedup_configs(data)
                         data = dedup_configs(data)
 
-                    if split == "valid":
-                        best_idx = np.argsort(data["config_runtime"])[:1000]
-                        data["node_config_feat"] = data["node_config_feat"][best_idx]
-                        data["config_runtime"] = data["config_runtime"][best_idx]
+                    # if split == "valid":
+                    #     best_idx = np.argsort(data["config_runtime"])[:1000]
+                    #     data["node_config_feat"] = data["node_config_feat"][best_idx]
+                    #     data["config_runtime"] = data["config_runtime"][best_idx]
 
                     # assert test_compression(data)
                     data["node_config_feat"] = compress_configs(
