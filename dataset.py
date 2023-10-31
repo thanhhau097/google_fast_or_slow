@@ -8,6 +8,38 @@ from torch.utils.data import Dataset
 from tqdm import tqdm
 
 
+def vec_to_int(vec: np.ndarray) -> np.ndarray:
+    # Powers of 7: [1, 7, 49, 343, 2401, 16807]
+    powers_of_7 = np.array([7**i for i in range(6)])
+    return np.dot(vec, powers_of_7).astype(np.int32)
+
+
+def int_to_vec(integers: np.ndarray) -> np.ndarray:
+    # Create an empty array of shape (N, 6) to store the results
+    vectors = np.empty((len(integers), 6), dtype=np.int64)
+
+    # Divide by powers of 7 and take the remainder to find each digit
+    for i in range(6):
+        vectors[:, i] = integers % 7
+        integers //= 7
+
+    return vectors.astype(np.int32)
+
+
+def compress_configs(node_configs):
+    vecs = node_configs.reshape(-1, 6).astype(np.int32) + 1
+    ints = vec_to_int(vecs)
+    ints = ints.reshape(node_configs.shape[0], node_configs.shape[1], 3)
+    return ints
+
+
+def decompress_configs(node_configs):
+    ints = node_configs.astype(np.int32).reshape(-1)
+    vecs = int_to_vec(ints)
+    vecs = vecs.reshape(node_configs.shape[0], -1, 18) - 1
+    return vecs
+
+
 def load_df(directory, split):
     path = os.path.join(directory, split)
     files = os.listdir(path)
@@ -132,7 +164,8 @@ class LayoutDataset(Dataset):
         edge_index = torch.tensor(np.swapaxes(row["edge_index"], 0, 1).astype(np.int64))
 
         # layout only
-        sparse_node_config_feat = row["node_config_feat"].astype(np.int8)
+        # sparse_node_config_feat = row["node_config_feat"].astype(np.int8)
+        sparse_node_config_feat = decompress_configs(row["node_config_feat"]).astype(np.int8)
         node_config_ids = row["node_config_ids"].astype(np.int64)
 
         target = row["config_runtime"].astype(np.float32)
@@ -143,9 +176,17 @@ class LayoutDataset(Dataset):
         elif sparse_node_config_feat.shape[0] <= self.max_configs:
             random_indices = list(range(sparse_node_config_feat.shape[0]))
         else:
-            random_indices = random.sample(
-                range(sparse_node_config_feat.shape[0]), self.max_configs
-            )
+            # if np.random.rand() < 0.7:
+            if np.random.rand() < 0.95:
+                random_indices = random.sample(
+                    range(sparse_node_config_feat.shape[0]), self.max_configs
+                )
+            else:
+                sorted_indices = np.argsort(target)
+                start_idx = np.random.randint(
+                    0, sparse_node_config_feat.shape[0] - self.max_configs
+                )
+                random_indices = sorted_indices[start_idx : start_idx + self.max_configs]
 
         sparse_node_config_feat = sparse_node_config_feat[random_indices]
 

@@ -79,6 +79,7 @@ def main():
         split="train",
         scaler=MinMaxScaler(),
         tgt_scaler=StandardScaler(),
+        max_configs=128
     )
     val_dataset = dataset_cls(
         data_type=data_args.data_type,
@@ -86,7 +87,7 @@ def main():
         search=data_args.search,
         data_folder=data_args.data_folder,
         split="valid",
-        max_configs=256,
+        max_configs=128,
     )
     if data_args.data_type == "layout":
         val_dataset.scaler = train_dataset.scaler
