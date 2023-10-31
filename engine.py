@@ -17,9 +17,7 @@ def pairwise_hinge_loss(y_pred, y_true):
 
     y_pred = y_pred.unsqueeze(0)
     y_true = y_true.unsqueeze(0)
-    return loss_fn(
-        y_pred, y_true, n=torch.tensor([y_pred.shape[1]], device=y_pred.device)
-    ).mean()
+    return loss_fn(y_pred, y_true, n=torch.tensor([y_pred.shape[1]], device=y_pred.device)).mean()
 
 
 # https://github.dev/allegro/allRank/blob/master/allrank/models/losses/listMLE.py
@@ -56,9 +54,9 @@ def listMLE(y_pred, y_true, eps=1e-10, padded_value_indicator=-float("inf")):
 
     preds_sorted_by_true_minus_max = preds_sorted_by_true - max_pred_values
 
-    cumsums = torch.cumsum(
-        preds_sorted_by_true_minus_max.exp().flip(dims=[1]), dim=1
-    ).flip(dims=[1])
+    cumsums = torch.cumsum(preds_sorted_by_true_minus_max.exp().flip(dims=[1]), dim=1).flip(
+        dims=[1]
+    )
 
     observation_loss = torch.log(cumsums + eps) - preds_sorted_by_true_minus_max
 
@@ -118,30 +116,22 @@ class CustomTrainer(Trainer):
         optimizer_grouped_parameters = [
             {
                 "params": [
-                    p
-                    for n, p in model.named_parameters()
-                    if not any(nd in n for nd in no_decay)
+                    p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)
                 ],
                 "weight_decay": self.args.weight_decay,
             },
             {
                 "params": [
-                    p
-                    for n, p in model.named_parameters()
-                    if any(nd in n for nd in no_decay)
+                    p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)
                 ],
                 "weight_decay": 0.0,
             },
         ]
-        optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(
-            self.args
-        )
+        optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(self.args)
         self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
         return self.optimizer
 
-    def prediction_step(
-        self, model, inputs, prediction_loss_only=False, ignore_keys=None
-    ):
+    def prediction_step(self, model, inputs, prediction_loss_only=False, ignore_keys=None):
         inputs = self._prepare_inputs(inputs)
         with torch.no_grad():
             with self.compute_loss_context_manager():

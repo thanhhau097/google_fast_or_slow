@@ -11,8 +11,7 @@ from transformers import HfArgumentParser, TrainingArguments, set_seed
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
 
 from data_args import DataArguments
-from dataset import (LayoutDataset, TileDataset, layout_collate_fn,
-                     tile_collate_fn)
+from dataset import LayoutDataset, TileDataset, layout_collate_fn, tile_collate_fn
 from engine import CustomTrainer, LayoutComputeMetricsFn, TileComputeMetricsFn
 from model import LayoutModel, TileModel, GATLayoutModel
 from model_args import ModelArguments
@@ -51,9 +50,7 @@ def main():
         datefmt="%m/%d/%Y %H:%M:%S",
         handlers=[logging.StreamHandler(sys.stdout)],
     )
-    logger.setLevel(
-        logging.INFO if is_main_process(training_args.local_rank) else logging.WARN
-    )
+    logger.setLevel(logging.INFO if is_main_process(training_args.local_rank) else logging.WARN)
     # Set the verbosity to info of the Transformers logger (on main process only):
     if is_main_process(training_args.local_rank):
         # transformers.utils.logging.set_verbosity_info()
@@ -86,7 +83,7 @@ def main():
         search=data_args.search,
         data_folder=data_args.data_folder,
         split="valid",
-        max_configs=512,
+        # max_configs=512,
     )
     if data_args.data_type == "layout":
         val_dataset.scaler = train_dataset.scaler
@@ -176,13 +173,9 @@ def main():
             test_dataset.scaler = train_dataset.scaler
             test_dataset.tgt_scaler = train_dataset.tgt_scaler
 
-            trainer.compute_metrics = LayoutComputeMetricsFn(
-                test_dataset.df, split="test"
-            )
+            trainer.compute_metrics = LayoutComputeMetricsFn(test_dataset.df, split="test")
         else:
-            trainer.compute_metrics = TileComputeMetricsFn(
-                test_dataset.df, split="test"
-            )
+            trainer.compute_metrics = TileComputeMetricsFn(test_dataset.df, split="test")
 
         predictions = trainer.predict(test_dataset).predictions
 
@@ -207,8 +200,7 @@ def main():
                 prediction = np.concatenate([predictions[i] for i in idx])
                 prediction = np.argsort(prediction)
                 prediction_files.append(
-                    f"{data_args.data_type}:{data_args.source}:{data_args.search}:"
-                    + file_id[:-4]
+                    f"{data_args.data_type}:{data_args.source}:{data_args.search}:" + file_id[:-4]
                 )
                 prediction_indices.append(";".join([str(int(e)) for e in prediction]))
 
