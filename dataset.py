@@ -126,6 +126,20 @@ class LayoutDataset(Dataset):
             random_df["search"] = "random"
 
             self.df = pd.concat([default_df, random_df])
+
+            # group by file, mix configs
+            if split == "train":
+                self.df = self.df.groupby("file").agg(
+                    {
+                        "node_feat": "first",
+                        "node_opcode": "first",
+                        "edge_index": "first",
+                        "node_config_feat": lambda x: np.concatenate(x.tolist(), axis=0),
+                        "node_config_ids": "first",
+                        "config_runtime": lambda x: np.concatenate(x.tolist(), axis=0),
+                        "search": "first",
+                    }
+                ).reset_index()
         else:
             if not use_compressed:
                 self.df = load_df(os.path.join(data_folder, data_type, source, search), split)
