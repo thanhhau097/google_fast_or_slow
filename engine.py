@@ -9,6 +9,7 @@ from scipy.stats import kendalltau
 from torch import nn
 from transformers import Trainer
 from transformers.trainer_pt_utils import nested_detach
+from torch.utils.data import DataLoader
 
 
 # https://pytorchltr.readthedocs.io/en/stable/loss.html
@@ -87,6 +88,7 @@ class CustomTrainer(Trainer):
             outputs = model(
                 inputs["node_config_feat"],
                 inputs["node_feat"],
+                inputs["node_layout_feat"],
                 inputs["node_opcode"],
                 inputs["edge_index"],
                 inputs["node_config_ids"],
@@ -145,6 +147,7 @@ class CustomTrainer(Trainer):
             del inputs["config_feat"]
         else:
             del inputs["node_config_feat"]
+            del inputs["node_layout_feat"]
 
         del inputs["node_feat"]
         del inputs["node_opcode"]
@@ -232,8 +235,9 @@ class LayoutComputeMetricsFn:
         new_predictions = []
         new_labels = []
         for i in range(len(predictions)):
-            new_predictions.append(np.array([x for x in predictions[i] if x != -100]))
-            new_labels.append(np.array([x for x in labels[i] if x != -100]))
+            to_keep_ids = np.where(labels[i] != -100)[0]
+            new_predictions.append(predictions[i][to_keep_ids])
+            new_labels.append(labels[i][to_keep_ids])
 
         predictions = new_predictions
         labels = new_labels
@@ -244,7 +248,10 @@ class LayoutComputeMetricsFn:
             idx = rows.index.tolist()
             prediction = np.concatenate([predictions[i] for i in idx])
             gt_ranks = np.concatenate([labels[i] for i in idx])
-            assert sum([x.shape[0] for x in rows["config_runtime"]]) == len(prediction)
+            if sum([x.shape[0] for x in rows["config_runtime"]]) != len(prediction):
+                print(
+                    f"WARNING: shape not mathing {len(prediction)}, {len(gt_ranks)}, {sum([x.shape[0] for x in rows['config_runtime']])}"
+                )
 
             score = kendalltau(prediction, gt_ranks).statistic
             scores.append(score)

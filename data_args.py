@@ -16,3 +16,7 @@ class DataArguments:
     )
     source: str = field(default="xla", metadata={"help": "'xla' or 'nlp'"})
     search: str = field(default="default", metadata={"help": "'default' or 'random'"})
+    max_configs: int = field(default=128, metadata={"help": "max number of configs per graph"})
+    max_configs_eval: int = field(
+        default=512, metadata={"help": "max number of configs per graph for validation"}
+    )

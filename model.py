@@ -220,18 +220,28 @@ class ChannelAttention(nn.Module):
         return tmp * x
 
 
+class InstanceNorm1d(nn.InstanceNorm1d):
+    def forward(self, x, batch):
+        x = x.swapaxes(1, 2)
+        x = super().forward(x)
+        return x.swapaxes(1, 2)
+
+
 class LinearActNorm(nn.Module):
-    def __init__(self, input_dim, output_dim, act):
+    def __init__(self, input_dim, output_dim, act, norm="instance"):
         super().__init__()
         self.linear = nn.Linear(input_dim, output_dim)
         torch.nn.init.xavier_normal_(self.linear.weight)
         self.linear.bias.data.fill_(0.01)
         self.act = act(inplace=True)
-        self.norm = nn.InstanceNorm1d(output_dim)
+        if norm == "instance":
+            self.norm = InstanceNorm1d(output_dim)
+        else:
+            self.norm = GraphNorm(output_dim)
         self.attn = ChannelAttention(output_dim)
 
     def forward(self, x, edge_index, batch):
-        x = self.norm(self.linear(x).swapaxes(1, 2)).swapaxes(1, 2)
+        x = self.norm(self.linear(x), batch)
         # x = self.linear(x)
         x = self.attn(x)
         x = self.act(x)
@@ -239,14 +249,19 @@ class LinearActNorm(nn.Module):
 
 
 class GATActBN(nn.Module):
-    def __init__(self, channels, act, droprate=0.2, graph_droprate=0.1, nb_heads=2):
+    def __init__(
+        self, channels, act, droprate=0.2, graph_droprate=0.1, nb_heads=2, norm="instance"
+    ):
         super().__init__()
         # self.conv = GATv2Conv(
         #     channels, channels, heads=nb_heads, dropout=graph_droprate, concat=False
         # )
         self.conv = SAGEConv(channels, channels)
         self.act = act(inplace=True)
-        self.norm = nn.InstanceNorm1d(channels)
+        if norm == "instance":
+            self.norm = InstanceNorm1d(channels)
+        else:
+            self.norm = GraphNorm(channels)
         if droprate > 0:
             self.dropout = nn.Dropout(p=droprate)
         print(f"Inner Dropout {droprate}")
@@ -254,7 +269,7 @@ class GATActBN(nn.Module):
         self.attn = ChannelAttention(channels)
 
     def forward(self, x, edge_index, batch):
-        tmp = self.norm(self.conv(x, edge_index).swapaxes(1, 2)).swapaxes(1, 2)
+        tmp = self.norm(self.conv(x, edge_index), batch)
         # tmp = self.conv(x, edge_index)
         x = self.attn(x)
         tmp = tmp + x
@@ -275,28 +290,32 @@ class GATLayoutModel(torch.nn.Module):
         op_embedding_dim=4,
         layout_embedding_dim=4,
         act=nn.ReLU,
+        norm="instance",
         nb_heads=1,
         gat_droprate=0,
         graph_droprate=0,
-        max_configs=64,
     ):
         super().__init__()
-        self.max_configs = max_configs
         self.embedding_op = torch.nn.Embedding(
             120,  # 120 different op-codes
             op_embedding_dim,
         )
-        self.embedding_layout = torch.nn.Embedding(
+        self.embedding_layout_cfg = torch.nn.Embedding(
             5 + 3, layout_embedding_dim
         )  # [1-5] + [0,-1,-2]
+        self.embedding_layout_feats = torch.nn.Embedding(6, layout_embedding_dim)  # [0-5]
         assert len(hidden_channels) > 0
         print(f"Dropout {dropout}")
-        NODE_FEAT_DIM = 140
+        NODE_FEAT_DIM = 134
         NODE_CONFIG_FEAT_DIM = 18
+        NODE_LAYOUT_FEAT_DIM = 6
         self.linear = LinearActNorm(
-            op_embedding_dim + NODE_FEAT_DIM + (NODE_CONFIG_FEAT_DIM * layout_embedding_dim),
+            op_embedding_dim + NODE_FEAT_DIM
+            # + (NODE_LAYOUT_FEAT_DIM * layout_embedding_dim)
+            + (NODE_CONFIG_FEAT_DIM * layout_embedding_dim),
             graph_in,
             act=act,
+            norm=norm,
         )
 
         self.convs = nn.ModuleList(
@@ -307,6 +326,7 @@ class GATLayoutModel(torch.nn.Module):
                     droprate=gat_droprate,
                     graph_droprate=graph_droprate,
                     nb_heads=nb_heads,
+                    norm=norm,
                 )
                 for _ in range(len(hidden_channels))
             ]
@@ -328,6 +348,7 @@ class GATLayoutModel(torch.nn.Module):
         self,
         x_node_cfg_j: Tensor,
         x_feat: Tensor,
+        x_node_layout_feat: Tensor,
         x_op: Tensor,
         edge_index: Tensor,
         node_config_ids: Tensor,
@@ -345,7 +366,7 @@ class GATLayoutModel(torch.nn.Module):
             node_cfg_feat_j + 2
         )  # -2 is min and 5 is max so offset to [0, 7] for embd layer
 
-        node_cfg_feat_j = self.embedding_layout(
+        node_cfg_feat_j = self.embedding_layout_cfg(
             node_cfg_feat_j
         )  # (num_configs, num_nodes, 18, embd_width)
         node_cfg_feat_j = node_cfg_feat_j.view(
@@ -358,12 +379,23 @@ class GATLayoutModel(torch.nn.Module):
             self.embedding_op(x_op).unsqueeze(0).repeat((node_cfg_feat_j.shape[0], 1, 1))
         )  # (num_configs, num_nodes, embd_width)
 
+        # TODO: Right now `node_layout_feat_embd` has almost no value since it was 0 padded instead
+        # of -1 padded like `node_cfg_feat_j`. Once we fix the data extraction we can probably use
+        # this. I think this will be an important feature since the combination of this + input/output
+        # config feats is what dictates if the copy operation are added or not.
+
+        # node_layout_feat_embd = self.embedding_layout_feats(x_node_layout_feat)
+        # node_layout_feat_embd = (
+        #     node_layout_feat_embd.unsqueeze(0)
+        #     .view(1, node_cfg_feat_j.shape[1], -1)
+        #     .repeat((node_cfg_feat_j.shape[0], 1, 1))
+        # )
+
         node_feat = torch.concat(
             [x_feat_j, node_cfg_feat_j, x_op_j], dim=2
         )  # (num_configs, num_nodes, 140+(18*embd_layout_width)+embd_op_width)
-        # batch = Batch.from_data_list(
-        #     [Data(x=node_feat[i], edge_index=edge_index) for i in range(node_feat.shape[0])]
-        # )
+
+        # Only used for GraphNorm, which takes stats across the nb_configs dimension
         batch = torch.zeros(node_feat.shape[0], dtype=torch.long).to(node_feat.device)
 
         node_feat = self.linear(node_feat, edge_index, batch)  # .relu()
@@ -372,12 +404,6 @@ class GATLayoutModel(torch.nn.Module):
         for conv in self.convs:
             node_feat = conv(node_feat, edge_index, batch)
 
-        # put into dense nn
-        # x = torch.flatten(self.dense(x))
-        # x = (x - torch.mean(x)) / (torch.std(x) + 1e-5)
-
-        # be careful that we have a batch of graphs with the same config here
-        # node_feat = global_mean_pool(node_feat, batch.batch)
         node_feat = node_feat.mean(1)  # nb_configs, channels
         node_feat = self.dense(node_feat)
         return node_feat
@@ -386,6 +412,7 @@ class GATLayoutModel(torch.nn.Module):
         self,
         x_node_cfg: Tensor,
         x_feat: Tensor,
+        x_node_layout_feat: Tensor,
         x_op: Tensor,
         edge_index: Tensor,
         node_config_ids: Tensor,
@@ -396,7 +423,9 @@ class GATLayoutModel(torch.nn.Module):
         # x_feat (num_nodes, 140)
         # x_op (num_nodes,)
         # if self.training:
-        embedding = self.single_pass_forward(x_node_cfg, x_feat, x_op, edge_index, node_config_ids)
+        embedding = self.single_pass_forward(
+            x_node_cfg, x_feat, x_node_layout_feat, x_op, edge_index, node_config_ids
+        )
         return self.classifier(embedding).reshape(-1)
 
         # # Inference time first pass

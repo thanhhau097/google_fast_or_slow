@@ -76,6 +76,7 @@ def main():
         split="train",
         scaler=MinMaxScaler(),
         tgt_scaler=StandardScaler(),
+        max_configs=data_args.max_configs,
     )
     val_dataset = dataset_cls(
         data_type=data_args.data_type,
@@ -83,7 +84,7 @@ def main():
         search=data_args.search,
         data_folder=data_args.data_folder,
         split="valid",
-        # max_configs=512,
+        max_configs=data_args.max_configs_eval,
     )
     if data_args.data_type == "layout":
         val_dataset.scaler = train_dataset.scaler
@@ -107,6 +108,9 @@ def main():
             hidden_dim=model_args.hidden_dim,
             dropout=model_args.dropout,
             gat_droprate=model_args.gat_dropout,
+            op_embedding_dim=model_args.op_embedding_dim,
+            layout_embedding_dim=model_args.layout_embedding_dim,
+            norm=model_args.norm,
         )
         collate_fn = layout_collate_fn
         compute_metrics = LayoutComputeMetricsFn(val_dataset.df)
@@ -167,6 +171,7 @@ def main():
             search=data_args.search,
             data_folder=data_args.data_folder,
             split="test",
+            max_configs=data_args.max_configs_eval,  # note that for model with GraphNorm this matters A LOT. Higher the better
         )
 
         if data_args.data_type == "layout":

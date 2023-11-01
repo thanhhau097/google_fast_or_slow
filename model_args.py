@@ -18,3 +18,6 @@ class ModelArguments:
     hidden_dim: int = field(default=256, metadata={"help": "hidden dimension"})
     dropout: float = field(default=0.2, metadata={"help": "dropout rate"})
     gat_dropout: float = field(default=0.2, metadata={"help": "dropout rate at gcn level"})
+    op_embedding_dim: int = field(default=16, metadata={"help": "num of op embedding dim"})
+    layout_embedding_dim: int = field(default=4, metadata={"help": "num of layout embedding dim"})
+    norm: str = field(default="instance", metadata={"help": "instance norm or group norm"})
