@@ -190,7 +190,7 @@ class LayoutDataset(Dataset):
 
         # layout only
         # sparse_node_config_feat = row["node_config_feat"].astype(np.int8)
-        sparse_node_config_feat = decompress_configs(row["node_config_feat"]).astype(np.int8)
+        sparse_node_config_feat = row["node_config_feat"]
         node_config_ids = row["node_config_ids"].astype(np.int64)
 
         target = row["config_runtime"].astype(np.float32)
@@ -206,6 +206,7 @@ class LayoutDataset(Dataset):
             )
 
         sparse_node_config_feat = sparse_node_config_feat[random_indices]
+        sparse_node_config_feat = decompress_configs(sparse_node_config_feat).astype(np.int8)
 
         # # convert node_config_feat to (num_configs, num_nodes, num_features)
         # node_config_feat = (
