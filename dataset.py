@@ -218,6 +218,19 @@ class LayoutDataset(Dataset):
             random_indices = random.sample(
                 range(sparse_node_config_feat.shape[0]), self.max_configs
             )
+            # if np.random.rand() < 0.5:
+            #     random_indices = random.sample(
+            #         range(sparse_node_config_feat.shape[0]), self.max_configs
+            #     )
+            # else:
+            #     sorted_indices = np.argsort(target)
+                
+            #     # select a list of k * max_configs indices then randomly select max_configs indices
+            #     k = np.random.randint(1, 5)
+            #     start_idx = np.random.randint(0, len(sorted_indices) - k * self.max_configs)
+            #     end_idx = start_idx + k * self.max_configs
+            #     random_indices = sorted_indices[start_idx:end_idx]
+            #     random_indices = random.sample(random_indices.tolist(), self.max_configs)
 
         sparse_node_config_feat = sparse_node_config_feat[random_indices]
         sparse_node_config_feat = decompress_configs(sparse_node_config_feat).astype(np.int8)
