@@ -19,3 +19,7 @@ class DataArguments:
     use_compressed: bool = field(
         default=True, metadata={"help": "Whether to use compressed data"}
     )
+    max_configs: int = field(default=128, metadata={"help": "max number of configs per graph"})
+    max_configs_eval: int = field(
+        default=512, metadata={"help": "max number of configs per graph for validation"}
+    )

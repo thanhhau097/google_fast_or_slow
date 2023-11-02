@@ -65,9 +65,7 @@ class TileDataset(Dataset):
         node_feat = torch.tensor(row["node_feat"].astype(np.float32))
         node_opcode = torch.tensor(row["node_opcode"].astype(np.int64))
         edge_index = torch.tensor(np.swapaxes(row["edge_index"], 0, 1).astype(np.int64))
-        target = (
-            row["config_runtime"] / (row["config_runtime_normalizers"] + 1e-5)
-        ).astype(
+        target = (row["config_runtime"] / (row["config_runtime_normalizers"] + 1e-5)).astype(
             np.float32
         )  # /row['config_runtime_normalizers']
         # minmax scale the target, we only care about order
@@ -151,7 +149,7 @@ class LayoutDataset(Dataset):
         self.scaler = scaler
         self.tgt_scaler = tgt_scaler
         if self.scaler is not None:
-            self.scaler = self.scaler.fit(np.concatenate(self.df["node_feat"].tolist()))
+            self.scaler = self.scaler.fit(np.concatenate(self.df["node_feat"].tolist())[:, :134])
         if self.tgt_scaler is not None:
             self.tgt_scaler = self.tgt_scaler.fit(
                 np.concatenate(self.df["config_runtime"].tolist())[:, None]
@@ -159,14 +157,12 @@ class LayoutDataset(Dataset):
         self.max_configs = max_configs
         self.split = split
         # break dataset into batch size chunks
-        if self.split in ["valid", "test"]:
+        if self.split in ["valid", "valid_dedup", "test"]:
             new_df = []
             for i in range(len(self.df)):
                 row = self.df.iloc[i]
                 nb_splits = int(np.ceil(row["node_config_feat"].shape[0] / max_configs))
-                all_node_cfg_feat_chunks = np.array_split(
-                    row["node_config_feat"], nb_splits
-                )
+                all_node_cfg_feat_chunks = np.array_split(row["node_config_feat"], nb_splits)
                 all_runtime_chunks = np.array_split(row["config_runtime"], nb_splits)
                 for subset_node_cfg_feat, subset_runtime in zip(
                     all_node_cfg_feat_chunks, all_runtime_chunks
@@ -199,18 +195,21 @@ class LayoutDataset(Dataset):
         # config_runtime (5704,)
         row = self.df.iloc[idx]
         node_feat = row["node_feat"].astype(np.float32)
+        node_layout_feat = node_feat[:, 134:]
+        node_feat = node_feat[:, :134]
+
         node_opcode = torch.tensor(row["node_opcode"].astype(np.int64))
         edge_index = torch.tensor(np.swapaxes(row["edge_index"], 0, 1).astype(np.int64))
 
         # layout only
         # sparse_node_config_feat = row["node_config_feat"].astype(np.int8)
-        sparse_node_config_feat = row["node_config_feat"]
+        sparse_node_config_feat = row["node_config_feat"]  # .astype(np.int8)
         node_config_ids = row["node_config_ids"].astype(np.int64)
 
         target = row["config_runtime"].astype(np.float32)
         # target = (target - np.mean(target)) / (np.std(target) + 1e-5)
 
-        if self.split in ["valid", "test"]:
+        if self.split in ["valid", "valid_dedup", "test"]:
             random_indices = list(range(sparse_node_config_feat.shape[0]))
         elif sparse_node_config_feat.shape[0] <= self.max_configs:
             random_indices = list(range(sparse_node_config_feat.shape[0]))
@@ -235,18 +234,6 @@ class LayoutDataset(Dataset):
         sparse_node_config_feat = sparse_node_config_feat[random_indices]
         sparse_node_config_feat = decompress_configs(sparse_node_config_feat).astype(np.int8)
 
-        # # convert node_config_feat to (num_configs, num_nodes, num_features)
-        # node_config_feat = (
-        #     np.ones(
-        #         (sparse_node_config_feat.shape[0], node_feat.shape[0], 18),
-        #         dtype=np.float32,
-        #     )
-        #     * -2
-        # )
-        # node_config_feat[:, node_config_ids] = sparse_node_config_feat
-
-        # node_config_feat = torch.tensor(node_config_feat)
-
         node_config_feat = torch.tensor(sparse_node_config_feat, dtype=torch.long)
 
         target = target[random_indices]
@@ -257,10 +244,12 @@ class LayoutDataset(Dataset):
         target = self.tgt_scaler.transform(target[:, None]).squeeze(1)
 
         node_feat = torch.tensor(node_feat)
+        node_layout_feat = torch.tensor(node_layout_feat, dtype=torch.long)
         target = torch.tensor(target)
         return (
             node_config_feat,
             node_feat,
+            node_layout_feat,
             node_opcode,
             edge_index,
             torch.tensor(node_config_ids),
@@ -269,11 +258,18 @@ class LayoutDataset(Dataset):
 
 
 def layout_collate_fn(batch):
-    node_config_feat, node_feat, node_opcode, edge_index, node_config_ids, target = zip(
-        *batch
-    )
+    (
+        node_config_feat,
+        node_feat,
+        node_layout_feat,
+        node_opcode,
+        edge_index,
+        node_config_ids,
+        target,
+    ) = zip(*batch)
     node_config_feat = torch.stack(node_config_feat)[0]
     node_feat = torch.stack(node_feat)[0]
+    node_layout_feat = torch.stack(node_layout_feat)[0]
     node_opcode = torch.stack(node_opcode)[0]
     edge_index = torch.stack(edge_index)[0]
     node_config_ids = torch.stack(node_config_ids)[0]
@@ -283,6 +279,7 @@ def layout_collate_fn(batch):
     return {
         "node_config_feat": node_config_feat,
         "node_feat": node_feat,
+        "node_layout_feat": node_layout_feat,
         "node_opcode": node_opcode,
         "edge_index": edge_index,
         "node_config_ids": node_config_ids,
