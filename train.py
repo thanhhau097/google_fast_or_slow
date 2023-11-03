@@ -78,6 +78,7 @@ def main():
         tgt_scaler=StandardScaler(),
         use_compressed=data_args.use_compressed,
         max_configs=data_args.max_configs,
+        data_concatenation=data_args.data_concatenation,
     )
     val_dataset = dataset_cls(
         data_type=data_args.data_type,
@@ -87,6 +88,7 @@ def main():
         split="valid",
         use_compressed=data_args.use_compressed,
         max_configs=data_args.max_configs_eval,
+        data_concatenation=data_args.data_concatenation,
     )
     if data_args.data_type == "layout":
         val_dataset.scaler = train_dataset.scaler

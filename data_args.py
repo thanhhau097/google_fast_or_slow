@@ -15,7 +15,10 @@ class DataArguments:
         default="tile", metadata={"help": "The type of data to use: layout/tile"}
     )
     source: str = field(default="xla", metadata={"help": "'xla' or 'nlp'"})
-    search: str = field(default="default", metadata={"help": "'default' or 'random'"})
+    search: str = field(default="default", metadata={"help": "'default' or 'random' or 'mix"})
+    data_concatenation: bool = field(
+        default=False, metadata={"help": "Whether to concatenate data from different searches"}
+    )
     use_compressed: bool = field(
         default=True, metadata={"help": "Whether to use compressed data"}
     )

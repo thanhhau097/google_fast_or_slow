@@ -106,6 +106,7 @@ class LayoutDataset(Dataset):
         scaler=None,
         tgt_scaler=None,
         use_compressed=True,
+        data_concatenation=False,
         **kwargs
     ):
         if search == "mix":
@@ -126,7 +127,7 @@ class LayoutDataset(Dataset):
             self.df = pd.concat([default_df, random_df])
 
             # group by file, mix configs
-            if split == "train":
+            if split == "train" and not data_concatenation:
                 self.df = self.df.groupby("file").agg(
                     {
                         "node_feat": "first",
