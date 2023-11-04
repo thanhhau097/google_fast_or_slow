@@ -26,3 +26,9 @@ class DataArguments:
     max_configs_eval: int = field(
         default=512, metadata={"help": "max number of configs per graph for validation"}
     )
+    select_close_runtimes: bool = field(
+        default=False, metadata={"help": "Whether to select close runtimes"}
+    )
+    select_close_runtimes_prob: float = field(
+        default=0.5, metadata={"help": "Probability of selecting close runtimes"}
+    )

@@ -79,6 +79,8 @@ def main():
         use_compressed=data_args.use_compressed,
         max_configs=data_args.max_configs,
         data_concatenation=data_args.data_concatenation,
+        select_close_runtimes=data_args.select_close_runtimes,
+        select_close_runtimes_prob=data_args.select_close_runtimes_prob,
     )
     val_dataset = dataset_cls(
         data_type=data_args.data_type,

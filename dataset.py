@@ -107,6 +107,8 @@ class LayoutDataset(Dataset):
         tgt_scaler=None,
         use_compressed=True,
         data_concatenation=False,
+        select_close_runtimes=False,
+        select_close_runtimes_prob=0.5,
         **kwargs
     ):
         if search == "mix":
@@ -157,6 +159,9 @@ class LayoutDataset(Dataset):
             )
         self.max_configs = max_configs
         self.split = split
+        self.select_close_runtimes = select_close_runtimes
+        self.select_close_runtimes_prob = select_close_runtimes_prob
+
         # break dataset into batch size chunks
         if self.split in ["valid", "valid_dedup", "test"]:
             new_df = []
@@ -215,22 +220,24 @@ class LayoutDataset(Dataset):
         elif sparse_node_config_feat.shape[0] <= self.max_configs:
             random_indices = list(range(sparse_node_config_feat.shape[0]))
         else:
-            random_indices = random.sample(
-                range(sparse_node_config_feat.shape[0]), self.max_configs
-            )
-            # if np.random.rand() < 0.5:
-            #     random_indices = random.sample(
-            #         range(sparse_node_config_feat.shape[0]), self.max_configs
-            #     )
-            # else:
-            #     sorted_indices = np.argsort(target)
-                
-            #     # select a list of k * max_configs indices then randomly select max_configs indices
-            #     k = np.random.randint(1, 5)
-            #     start_idx = np.random.randint(0, len(sorted_indices) - k * self.max_configs)
-            #     end_idx = start_idx + k * self.max_configs
-            #     random_indices = sorted_indices[start_idx:end_idx]
-            #     random_indices = random.sample(random_indices.tolist(), self.max_configs)
+            if self.select_close_runtimes:
+                if np.random.rand() > self.select_close_runtimes_prob:
+                    random_indices = random.sample(
+                        range(sparse_node_config_feat.shape[0]), self.max_configs
+                    )
+                else:
+                    sorted_indices = np.argsort(target)
+                    
+                    # select a list of k * max_configs indices then randomly select max_configs indices
+                    k = np.random.randint(1, 5)
+                    start_idx = np.random.randint(0, len(sorted_indices) - k * self.max_configs)
+                    end_idx = start_idx + k * self.max_configs
+                    random_indices = sorted_indices[start_idx:end_idx]
+                    random_indices = random.sample(random_indices.tolist(), self.max_configs)
+            else:
+                random_indices = random.sample(
+                    range(sparse_node_config_feat.shape[0]), self.max_configs
+                )
 
         sparse_node_config_feat = sparse_node_config_feat[random_indices]
         sparse_node_config_feat = decompress_configs(sparse_node_config_feat).astype(np.int8)
