@@ -230,7 +230,11 @@ class LayoutDataset(Dataset):
                     
                     # select a list of k * max_configs indices then randomly select max_configs indices
                     k = np.random.randint(1, 5)
-                    start_idx = np.random.randint(0, len(sorted_indices) - k * self.max_configs)
+                    if k * self.max_configs < len(sorted_indices):
+                        start_idx = np.random.randint(0, len(sorted_indices) - k * self.max_configs)
+                    else:
+                        start_idx = 0
+
                     end_idx = start_idx + k * self.max_configs
                     random_indices = sorted_indices[start_idx:end_idx]
                     random_indices = random.sample(random_indices.tolist(), self.max_configs)
