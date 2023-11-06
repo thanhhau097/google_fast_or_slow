@@ -234,6 +234,20 @@ class InstanceNorm1d(nn.InstanceNorm1d):
         return x.swapaxes(1, 2)
 
 
+class CrossConfigAttention(nn.Module):
+    def __init__(
+        self,
+    ):
+        super().__init__()
+        self.temperature = nn.Parameter(torch.tensor(0.5))
+
+    def forward(self, x):
+        # x of shape (nb_configs, nb_nodes, nb_features)
+        scores = (x / self.temperature).softmax(dim=0)
+        x = x * scores
+        return x
+
+
 class LinearActNorm(nn.Module):
     def __init__(self, input_dim, output_dim, act, norm="instance"):
         super().__init__()
@@ -241,6 +255,7 @@ class LinearActNorm(nn.Module):
         torch.nn.init.xavier_normal_(self.linear.weight)
         self.linear.bias.data.fill_(0.01)
         self.act = act(inplace=True)
+        self.cross_attn = CrossConfigAttention()
         if norm == "instance":
             self.norm = InstanceNorm1d(output_dim)
         else:
@@ -251,6 +266,7 @@ class LinearActNorm(nn.Module):
         x = self.norm(self.linear(x), batch)
         # x = self.linear(x)
         x = self.attn(x)
+        x = self.cross_attn(x)
         x = self.act(x)
         return x
 
@@ -274,11 +290,13 @@ class SageGraphBlock(nn.Module):
         print(f"Inner Dropout {droprate}")
         self.droprate = droprate
         self.attn = ChannelAttention(channels)
+        self.cross_attn = CrossConfigAttention()
 
     def forward(self, x, edge_index, batch):
         tmp = self.norm(self.conv(x, edge_index), batch)
         # tmp = self.conv(x, edge_index)
         x = self.attn(x)
+        x = self.cross_attn(x)
         tmp = tmp + x
         tmp = self.act(tmp)
         if self.droprate > 0:
@@ -308,8 +326,8 @@ class GATLayoutModel(torch.nn.Module):
             op_embedding_dim,
         )
         self.embedding_layout_cfg = torch.nn.Embedding(
-            5 + 2, layout_embedding_dim
-        )  # [1-5] + [0,-1]
+            5 + 3, layout_embedding_dim
+        )  # [1-5] + [0,-1, -2]
         # self.embedding_layout_feats = torch.nn.Embedding(6, layout_embedding_dim)  # [0-5]
         assert len(hidden_channels) > 0
         print(f"Dropout {dropout}")
@@ -366,12 +384,12 @@ class GATLayoutModel(torch.nn.Module):
                 dtype=torch.long,
                 device=x_node_cfg_j.device,
             )
-            * -1
+            * -2
         )
         node_cfg_feat_j[:, node_config_ids] = x_node_cfg_j
         node_cfg_feat_j = (
-            node_cfg_feat_j + 1
-        )  # -1 is min and 5 is max so offset to [0, 6] for embd layer
+            node_cfg_feat_j + 2
+        )  # -2 is min and 5 is max so offset to [0, 7] for embd layer
 
         node_cfg_feat_j = self.embedding_layout_cfg(
             node_cfg_feat_j
@@ -391,7 +409,7 @@ class GATLayoutModel(torch.nn.Module):
         # this. I think this will be an important feature since the combination of this + input/output
         # config feats is what dictates if the copy operation are added or not.
 
-        node_layout_feat_embd = self.embedding_layout_cfg(x_node_layout_feat + 1)
+        node_layout_feat_embd = self.embedding_layout_cfg(x_node_layout_feat + 2)
         node_layout_feat_embd = (
             node_layout_feat_embd.unsqueeze(0)
             .view(1, node_cfg_feat_j.shape[1], -1)

@@ -48,6 +48,9 @@ def load_df(directory, split):
     for file in tqdm(files):
         d = dict(np.load(os.path.join(path, file)))
         d["file"] = file
+        if len(d["config_runtime"]) <= 1:
+            print(f"skipping {file} as it only contains {len(d['config_runtime'])} configs")
+            continue
         list_df.append(d)
     return pd.DataFrame.from_dict(list_df)
 
@@ -105,7 +108,7 @@ class LayoutDataset(Dataset):
         max_configs=64,
         scaler=None,
         tgt_scaler=None,
-        **kwargs
+        **kwargs,
     ):
         self.df = load_df(os.path.join(data_folder, data_type, source, search), split)
         self.scaler = scaler
