@@ -1,7 +1,14 @@
 import torch
 from torch import Tensor, nn
 import numpy as np
-from torch_geometric.nn import SAGEConv, global_mean_pool, GATv2Conv, GraphNorm
+from torch_geometric.nn import (
+    SAGEConv,
+    global_mean_pool,
+    GATv2Conv,
+    GraphNorm,
+    CuGraphSAGEConv,
+    GENConv,
+)
 from torch_geometric.data import Data, Batch
 from torch_geometric.nn.inits import ones, zeros
 from torch_geometric.utils import scatter
@@ -248,7 +255,7 @@ class LinearActNorm(nn.Module):
         return x
 
 
-class GATActBN(nn.Module):
+class SageGraphBlock(nn.Module):
     def __init__(
         self, channels, act, droprate=0.2, graph_droprate=0.1, nb_heads=2, norm="instance"
     ):
@@ -301,17 +308,18 @@ class GATLayoutModel(torch.nn.Module):
             op_embedding_dim,
         )
         self.embedding_layout_cfg = torch.nn.Embedding(
-            5 + 3, layout_embedding_dim
-        )  # [1-5] + [0,-1,-2]
-        self.embedding_layout_feats = torch.nn.Embedding(6, layout_embedding_dim)  # [0-5]
+            5 + 2, layout_embedding_dim
+        )  # [1-5] + [0,-1]
+        # self.embedding_layout_feats = torch.nn.Embedding(6, layout_embedding_dim)  # [0-5]
         assert len(hidden_channels) > 0
         print(f"Dropout {dropout}")
         NODE_FEAT_DIM = 134
         NODE_CONFIG_FEAT_DIM = 18
         NODE_LAYOUT_FEAT_DIM = 6
         self.linear = LinearActNorm(
-            op_embedding_dim + NODE_FEAT_DIM
-            # + (NODE_LAYOUT_FEAT_DIM * layout_embedding_dim)
+            op_embedding_dim
+            + NODE_FEAT_DIM
+            + (NODE_LAYOUT_FEAT_DIM * layout_embedding_dim)
             + (NODE_CONFIG_FEAT_DIM * layout_embedding_dim),
             graph_in,
             act=act,
@@ -320,7 +328,7 @@ class GATLayoutModel(torch.nn.Module):
 
         self.convs = nn.ModuleList(
             [
-                GATActBN(
+                SageGraphBlock(
                     graph_in,
                     act,
                     droprate=gat_droprate,
@@ -331,7 +339,6 @@ class GATLayoutModel(torch.nn.Module):
                 for _ in range(len(hidden_channels))
             ]
         )
-
         self.dense = torch.nn.Sequential(
             nn.Linear(graph_out, hidden_dim),
             ChannelAttention(hidden_dim),
@@ -359,12 +366,12 @@ class GATLayoutModel(torch.nn.Module):
                 dtype=torch.long,
                 device=x_node_cfg_j.device,
             )
-            * -2
+            * -1
         )
         node_cfg_feat_j[:, node_config_ids] = x_node_cfg_j
         node_cfg_feat_j = (
-            node_cfg_feat_j + 2
-        )  # -2 is min and 5 is max so offset to [0, 7] for embd layer
+            node_cfg_feat_j + 1
+        )  # -1 is min and 5 is max so offset to [0, 6] for embd layer
 
         node_cfg_feat_j = self.embedding_layout_cfg(
             node_cfg_feat_j
@@ -384,15 +391,15 @@ class GATLayoutModel(torch.nn.Module):
         # this. I think this will be an important feature since the combination of this + input/output
         # config feats is what dictates if the copy operation are added or not.
 
-        # node_layout_feat_embd = self.embedding_layout_feats(x_node_layout_feat)
-        # node_layout_feat_embd = (
-        #     node_layout_feat_embd.unsqueeze(0)
-        #     .view(1, node_cfg_feat_j.shape[1], -1)
-        #     .repeat((node_cfg_feat_j.shape[0], 1, 1))
-        # )
+        node_layout_feat_embd = self.embedding_layout_cfg(x_node_layout_feat + 1)
+        node_layout_feat_embd = (
+            node_layout_feat_embd.unsqueeze(0)
+            .view(1, node_cfg_feat_j.shape[1], -1)
+            .repeat((node_cfg_feat_j.shape[0], 1, 1))
+        )
 
         node_feat = torch.concat(
-            [x_feat_j, node_cfg_feat_j, x_op_j], dim=2
+            [x_feat_j, node_cfg_feat_j, node_layout_feat_embd, x_op_j], dim=2
         )  # (num_configs, num_nodes, 140+(18*embd_layout_width)+embd_op_width)
 
         # Only used for GraphNorm, which takes stats across the nb_configs dimension
