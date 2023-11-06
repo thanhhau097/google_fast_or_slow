@@ -339,16 +339,16 @@ class GATLayoutModel(torch.nn.Module):
                 for _ in range(len(hidden_channels))
             ]
         )
-        self.dense = torch.nn.Sequential(
-            nn.Linear(graph_out, hidden_dim),
-            ChannelAttention(hidden_dim),
-            nn.Dropout(p=dropout),
-            nn.ReLU(inplace=True),
-            nn.Linear(hidden_dim, hidden_dim),
-            ChannelAttention(hidden_dim),
-            nn.Dropout(p=dropout),
-            nn.ReLU(inplace=True),
-        )
+        # self.dense = torch.nn.Sequential(
+        #     nn.Linear(graph_out, hidden_dim),
+        #     ChannelAttention(hidden_dim),
+        #     nn.Dropout(p=dropout),
+        #     nn.ReLU(inplace=True),
+        #     nn.Linear(hidden_dim, hidden_dim),
+        #     ChannelAttention(hidden_dim),
+        #     nn.Dropout(p=dropout),
+        #     nn.ReLU(inplace=True),
+        # )
         self.classifier = nn.Linear(hidden_dim, 1)
 
     def single_pass_forward(
@@ -412,7 +412,7 @@ class GATLayoutModel(torch.nn.Module):
             node_feat = conv(node_feat, edge_index, batch)
 
         node_feat = node_feat.mean(1)  # nb_configs, channels
-        node_feat = self.dense(node_feat)
+        # node_feat = self.dense(node_feat)
         return node_feat
 
     def forward(
