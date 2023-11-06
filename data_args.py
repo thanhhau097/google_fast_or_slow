@@ -32,3 +32,6 @@ class DataArguments:
     select_close_runtimes_prob: float = field(
         default=0.5, metadata={"help": "Probability of selecting close runtimes"}
     )
+    filter_random_configs: bool = field(
+        default=False, metadata={"help": "Whether to filter random configs when training with mix data"}
+    )

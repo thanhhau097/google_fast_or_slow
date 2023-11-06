@@ -109,6 +109,7 @@ class LayoutDataset(Dataset):
         data_concatenation=False,
         select_close_runtimes=False,
         select_close_runtimes_prob=0.5,
+        filter_random_configs=False,
         **kwargs
     ):
         if search == "mix":
@@ -123,6 +124,73 @@ class LayoutDataset(Dataset):
                 random_df = load_df(
                     os.path.join(data_folder, data_type, source + "_compressed", "random"), split
                 )
+
+            # only keep random configs that has runtime inside range of default configs
+            if split == "train" and filter_random_configs:
+                print("Filtering random configs")
+                filtered_random_df = []
+                for file in tqdm(default_df["file"].unique()):
+                    default_runtime = default_df[default_df["file"] == file]["config_runtime"].values[0]
+                    file_df = random_df.loc[random_df["file"] == file]
+
+                    # filter out node_config_feat and runtime that are not in range of min and max default runtime
+                    min_runtime = min(default_runtime)
+                    max_runtime = max(default_runtime)
+
+                    new_dict = {}
+                    for col in file_df.columns:
+                        if col == "config_runtime":
+                            filtered_runtimes = []
+                            filtered_node_config_feat = []
+                            for runtime, node_config_feat in zip(
+                                file_df[col].values[0], file_df["node_config_feat"].values[0]
+                            ):
+                                if min_runtime <= runtime <= max_runtime:
+                                    filtered_runtimes.append(runtime)
+                                    filtered_node_config_feat.append(node_config_feat)
+
+                            # --------- EXPERIMENTAL CODE ---------
+                            # we need to upsampling to distribution of default runtime
+                            # split the default runtime to k bins, then for each bin, we sample from the filtered runtime
+                            k = 128
+                            bins = np.linspace(min_runtime, max_runtime, k + 1)
+                            bin_indices = np.digitize(filtered_runtimes, bins)
+                            bin_indices = np.array(bin_indices)
+                            bin_indices = bin_indices - 1
+                            bin_indices = bin_indices.tolist()
+
+                            # for each bin, we sample runtimes from the filtered runtimes
+                            sampled_runtimes = []
+                            sampled_node_config_feat = []
+
+                            for i in range(k):
+                                bin_indices_i = np.where(np.array(bin_indices) == i)[0]
+                                if len(bin_indices_i) > 0:
+                                    # num_samples is number of default runtimes in bin i
+                                    num_samples = np.sum(np.logical_and(default_runtime < bins[i + 1], default_runtime >= bins[i]))
+                                    sampled_indices = np.random.choice(
+                                        bin_indices_i,
+                                        # num_samples
+                                        # min(num_samples, len(bin_indices_i)),
+                                        len(bin_indices_i),
+                                    )
+                                    sampled_runtimes.extend(sampled_indices)
+                                    sampled_node_config_feat.extend(sampled_indices)
+                            
+                            sampled_runtimes = np.array(filtered_runtimes)[sampled_runtimes]
+                            sampled_node_config_feat = np.array(filtered_node_config_feat)[sampled_node_config_feat]
+
+                            # new_dict[col] = [np.array(filtered_runtimes)]
+                            # new_dict["node_config_feat"] = [np.array(filtered_node_config_feat)]
+                            new_dict[col] = [np.array(sampled_runtimes)]
+                            new_dict["node_config_feat"] = [np.array(sampled_node_config_feat)]
+                        else:
+                            new_dict[col] = file_df[col].values
+
+                    filtered_random_df.append(pd.DataFrame.from_dict(new_dict))
+
+                random_df = pd.concat(filtered_random_df)
+
             default_df["search"] = "default"
             random_df["search"] = "random"
 
