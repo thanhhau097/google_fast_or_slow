@@ -171,8 +171,8 @@ class LayoutDataset(Dataset):
                                     sampled_indices = np.random.choice(
                                         bin_indices_i,
                                         # num_samples
-                                        # min(num_samples, len(bin_indices_i)),
-                                        len(bin_indices_i),
+                                        min(num_samples, len(bin_indices_i)),
+                                        # len(bin_indices_i),
                                     )
                                     sampled_runtimes.extend(sampled_indices)
                                     sampled_node_config_feat.extend(sampled_indices)
