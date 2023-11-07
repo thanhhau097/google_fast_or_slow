@@ -6,6 +6,8 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 from tqdm import tqdm
+from transformers.training_args import TrainingArguments
+from transformers import TrainerCallback, TrainerControl, TrainerState
 
 
 def vec_to_int(vec: np.ndarray) -> np.ndarray:
@@ -54,6 +56,7 @@ def load_df(directory, split):
 
 class TileDataset(Dataset):
     def __init__(self, data_type, source, search, data_folder, split="train", **kwargs):
+        self.current_epoch = -1
         self.df = load_df(os.path.join(data_folder, data_type, source), split)
 
     def __len__(self):
@@ -110,8 +113,13 @@ class LayoutDataset(Dataset):
         select_close_runtimes=False,
         select_close_runtimes_prob=0.5,
         filter_random_configs=False,
+        total_epochs=100,
+        annealing=False,
         **kwargs
     ):
+        self.current_epoch = -1
+        self.total_epochs = total_epochs
+        self.annealing = annealing
         if search == "mix":
             # in mix mode, we load all the data both from default and random
             if not use_compressed:
@@ -297,7 +305,12 @@ class LayoutDataset(Dataset):
                     sorted_indices = np.argsort(target)
                     
                     # select a list of k * max_configs indices then randomly select max_configs indices
-                    k = np.random.randint(1, 5)
+                    # select k based on current epoch and total number of epochs
+                    if self.annealing:
+                        k = int(((self.total_epochs - self.current_epoch) / self.total_epochs * len(sorted_indices)) // self.max_configs)
+                    else:
+                        k = np.random.randint(1, 5)
+
                     if k * self.max_configs < len(sorted_indices):
                         start_idx = np.random.randint(0, len(sorted_indices) - k * self.max_configs)
                     else:
@@ -365,3 +378,13 @@ def layout_collate_fn(batch):
         "node_config_ids": node_config_ids,
         "target": target,
     }
+
+
+class DatasetCallback(TrainerCallback):
+    def __init__(self, dataset) -> None:
+        super().__init__()
+        self.dataset = dataset
+
+    def on_epoch_begin(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
+        self.dataset.current_epoch += 1
+        return super().on_epoch_begin(args, state, control, **kwargs)

@@ -11,7 +11,7 @@ from transformers import HfArgumentParser, TrainingArguments, set_seed
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
 
 from data_args import DataArguments
-from dataset import LayoutDataset, TileDataset, layout_collate_fn, tile_collate_fn
+from dataset import LayoutDataset, TileDataset, layout_collate_fn, tile_collate_fn, DatasetCallback
 from engine import CustomTrainer, LayoutComputeMetricsFn, TileComputeMetricsFn
 from model import LayoutModel, TileModel, GATLayoutModel
 from model_args import ModelArguments
@@ -82,6 +82,8 @@ def main():
         select_close_runtimes=data_args.select_close_runtimes,
         select_close_runtimes_prob=data_args.select_close_runtimes_prob,
         filter_random_configs=data_args.filter_random_configs,
+        total_epochs=training_args.num_train_epochs,
+        annealing=data_args.annealing,
     )
     val_dataset = dataset_cls(
         data_type=data_args.data_type,
@@ -151,6 +153,7 @@ def main():
         compute_metrics=compute_metrics,
         data_type=data_args.data_type,
     )
+    trainer.add_callback(DatasetCallback(train_dataset))
 
     # Training
     if training_args.do_train:

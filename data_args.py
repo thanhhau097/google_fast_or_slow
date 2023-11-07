@@ -38,3 +38,6 @@ class DataArguments:
     use_standard_scaler: bool = field(
         default=False, metadata={"help": "Whether to use standard scaler"}
     )
+    annealing: bool = field(
+        default=False, metadata={"help": "Whether to use annealing"}
+    )
