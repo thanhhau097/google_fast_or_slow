@@ -172,7 +172,7 @@ class LayoutDataset(Dataset):
                                         bin_indices_i,
                                         # num_samples
                                         min(num_samples, len(bin_indices_i)),
-                                        # len(bin_indices_i),
+                                        # len(bin_indices_i) if num_samples > 0 else 0,
                                     )
                                     sampled_runtimes.extend(sampled_indices)
                                     sampled_node_config_feat.extend(sampled_indices)
