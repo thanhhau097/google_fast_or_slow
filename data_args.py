@@ -35,3 +35,6 @@ class DataArguments:
     filter_random_configs: bool = field(
         default=False, metadata={"help": "Whether to filter random configs when training with mix data"}
     )
+    use_standard_scaler: bool = field(
+        default=False, metadata={"help": "Whether to use standard scaler"}
+    )
