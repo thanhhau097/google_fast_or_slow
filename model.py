@@ -146,8 +146,10 @@ class LayoutModel(torch.nn.Module):
             nn.Linear(hidden_dim, hidden_dim),
             nn.Dropout(p=dropout),
             nn.ReLU(),
-            nn.Linear(hidden_dim, 1),
+            # nn.Linear(hidden_dim, 1),
         )
+
+        self.classifier = nn.Linear(hidden_dim, 1)
 
     def forward(
         self,
@@ -209,6 +211,9 @@ class LayoutModel(torch.nn.Module):
         x = x.mean(1)
         x = self.dense(x)
 
+        x = x - x.mean(0)
+        x = self.classifier(x)
+
         return x.reshape(-1)
 
 
@@ -249,13 +254,13 @@ class CrossConfigAttention(nn.Module):
 
 
 class LinearActNorm(nn.Module):
-    def __init__(self, input_dim, output_dim, act, norm="instance"):
+    def __init__(self, input_dim, output_dim, act, norm="instance", use_cross_attn=False):
         super().__init__()
         self.linear = nn.Linear(input_dim, output_dim)
         torch.nn.init.xavier_normal_(self.linear.weight)
         self.linear.bias.data.fill_(0.01)
         self.act = act(inplace=True)
-        self.cross_attn = CrossConfigAttention()
+        self.cross_attn = CrossConfigAttention() if use_cross_attn else nn.Identity()
         if norm == "instance":
             self.norm = InstanceNorm1d(output_dim)
         else:
@@ -273,7 +278,14 @@ class LinearActNorm(nn.Module):
 
 class SageGraphBlock(nn.Module):
     def __init__(
-        self, channels, act, droprate=0.2, graph_droprate=0.1, nb_heads=2, norm="instance"
+        self,
+        channels,
+        act,
+        droprate=0.2,
+        graph_droprate=0.1,
+        nb_heads=2,
+        norm="instance",
+        use_cross_attn=False,
     ):
         super().__init__()
         # self.conv = GATv2Conv(
@@ -290,7 +302,7 @@ class SageGraphBlock(nn.Module):
         print(f"Inner Dropout {droprate}")
         self.droprate = droprate
         self.attn = ChannelAttention(channels)
-        self.cross_attn = CrossConfigAttention()
+        self.cross_attn = CrossConfigAttention() if use_cross_attn else nn.Identity()
 
     def forward(self, x, edge_index, batch):
         tmp = self.norm(self.conv(x, edge_index), batch)
@@ -319,6 +331,7 @@ class GATLayoutModel(torch.nn.Module):
         nb_heads=1,
         gat_droprate=0,
         graph_droprate=0,
+        use_cross_attn=False,
     ):
         super().__init__()
         self.embedding_op = torch.nn.Embedding(
@@ -342,6 +355,7 @@ class GATLayoutModel(torch.nn.Module):
             graph_in,
             act=act,
             norm=norm,
+            use_cross_attn=use_cross_attn,
         )
 
         self.convs = nn.ModuleList(
@@ -353,6 +367,7 @@ class GATLayoutModel(torch.nn.Module):
                     graph_droprate=graph_droprate,
                     nb_heads=nb_heads,
                     norm=norm,
+                    use_cross_attn=use_cross_attn,
                 )
                 for _ in range(len(hidden_channels))
             ]

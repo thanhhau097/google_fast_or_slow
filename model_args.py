@@ -21,3 +21,4 @@ class ModelArguments:
     op_embedding_dim: int = field(default=16, metadata={"help": "num of op embedding dim"})
     layout_embedding_dim: int = field(default=4, metadata={"help": "num of layout embedding dim"})
     norm: str = field(default="instance", metadata={"help": "instance norm or group norm"})
+    use_cross_attn: bool = field(default=False, metadata={"help": "use cross attn or not"})

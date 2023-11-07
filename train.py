@@ -76,7 +76,12 @@ def main():
         split="train",
         scaler=StandardScaler(),
         tgt_scaler=StandardScaler(),
+        use_compressed=data_args.use_compressed,
         max_configs=data_args.max_configs,
+        data_concatenation=data_args.data_concatenation,
+        select_close_runtimes=data_args.select_close_runtimes,
+        select_close_runtimes_prob=data_args.select_close_runtimes_prob,
+        filter_random_configs=data_args.filter_random_configs,
     )
     val_dataset = dataset_cls(
         data_type=data_args.data_type,
@@ -84,7 +89,9 @@ def main():
         search=data_args.search,
         data_folder=data_args.data_folder,
         split="valid",
+        use_compressed=data_args.use_compressed,
         max_configs=data_args.max_configs_eval,
+        data_concatenation=data_args.data_concatenation,
     )
     if data_args.data_type == "layout":
         val_dataset.scaler = train_dataset.scaler
@@ -111,6 +118,7 @@ def main():
             op_embedding_dim=model_args.op_embedding_dim,
             layout_embedding_dim=model_args.layout_embedding_dim,
             norm=model_args.norm,
+            use_cross_attn=model_args.use_cross_attn,
         )
         collate_fn = layout_collate_fn
         compute_metrics = LayoutComputeMetricsFn(val_dataset.df)

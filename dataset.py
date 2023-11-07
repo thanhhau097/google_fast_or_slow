@@ -108,9 +108,135 @@ class LayoutDataset(Dataset):
         max_configs=64,
         scaler=None,
         tgt_scaler=None,
+        use_compressed=True,
+        data_concatenation=False,
+        select_close_runtimes=False,
+        select_close_runtimes_prob=0.5,
+        filter_random_configs=False,
         **kwargs,
     ):
-        self.df = load_df(os.path.join(data_folder, data_type, source, search), split)
+        if search == "mix":
+            # in mix mode, we load all the data both from default and random
+            if not use_compressed:
+                default_df = load_df(
+                    os.path.join(data_folder, data_type, source, "default"), split
+                )
+                random_df = load_df(os.path.join(data_folder, data_type, source, "random"), split)
+            else:
+                default_df = load_df(
+                    os.path.join(data_folder, data_type, source + "_compressed", "default"), split
+                )
+                random_df = load_df(
+                    os.path.join(data_folder, data_type, source + "_compressed", "random"), split
+                )
+
+            # only keep random configs that has runtime inside range of default configs
+            if split == "train" and filter_random_configs:
+                print("Filtering random configs")
+                filtered_random_df = []
+                for file in tqdm(default_df["file"].unique()):
+                    default_runtime = default_df[default_df["file"] == file][
+                        "config_runtime"
+                    ].values[0]
+                    file_df = random_df.loc[random_df["file"] == file]
+
+                    # filter out node_config_feat and runtime that are not in range of min and max default runtime
+                    min_runtime = min(default_runtime)
+                    max_runtime = max(default_runtime)
+
+                    new_dict = {}
+                    for col in file_df.columns:
+                        if col == "config_runtime":
+                            filtered_runtimes = []
+                            filtered_node_config_feat = []
+                            for runtime, node_config_feat in zip(
+                                file_df[col].values[0], file_df["node_config_feat"].values[0]
+                            ):
+                                if min_runtime <= runtime <= max_runtime:
+                                    filtered_runtimes.append(runtime)
+                                    filtered_node_config_feat.append(node_config_feat)
+
+                            # --------- EXPERIMENTAL CODE ---------
+                            # we need to upsampling to distribution of default runtime
+                            # split the default runtime to k bins, then for each bin, we sample from the filtered runtime
+                            k = 128
+                            bins = np.linspace(min_runtime, max_runtime, k + 1)
+                            bin_indices = np.digitize(filtered_runtimes, bins)
+                            bin_indices = np.array(bin_indices)
+                            bin_indices = bin_indices - 1
+                            bin_indices = bin_indices.tolist()
+
+                            # for each bin, we sample runtimes from the filtered runtimes
+                            sampled_runtimes = []
+                            sampled_node_config_feat = []
+
+                            for i in range(k):
+                                bin_indices_i = np.where(np.array(bin_indices) == i)[0]
+                                if len(bin_indices_i) > 0:
+                                    # num_samples is number of default runtimes in bin i
+                                    num_samples = np.sum(
+                                        np.logical_and(
+                                            default_runtime < bins[i + 1],
+                                            default_runtime >= bins[i],
+                                        )
+                                    )
+                                    sampled_indices = np.random.choice(
+                                        bin_indices_i,
+                                        # num_samples
+                                        min(num_samples, len(bin_indices_i)),
+                                        # len(bin_indices_i),
+                                    )
+                                    sampled_runtimes.extend(sampled_indices)
+                                    sampled_node_config_feat.extend(sampled_indices)
+
+                            sampled_runtimes = np.array(filtered_runtimes)[sampled_runtimes]
+                            sampled_node_config_feat = np.array(filtered_node_config_feat)[
+                                sampled_node_config_feat
+                            ]
+
+                            # new_dict[col] = [np.array(filtered_runtimes)]
+                            # new_dict["node_config_feat"] = [np.array(filtered_node_config_feat)]
+                            new_dict[col] = [np.array(sampled_runtimes)]
+                            new_dict["node_config_feat"] = [np.array(sampled_node_config_feat)]
+                        else:
+                            new_dict[col] = file_df[col].values
+
+                    filtered_random_df.append(pd.DataFrame.from_dict(new_dict))
+
+                random_df = pd.concat(filtered_random_df)
+
+            default_df["search"] = "default"
+            random_df["search"] = "random"
+
+            self.df = pd.concat([default_df, random_df])
+
+            # group by file, mix configs
+            if split == "train" and not data_concatenation:
+                self.df = (
+                    self.df.groupby("file")
+                    .agg(
+                        {
+                            "node_feat": "first",
+                            "node_opcode": "first",
+                            "edge_index": "first",
+                            "node_config_feat": lambda x: np.concatenate(x.tolist(), axis=0),
+                            "node_config_ids": "first",
+                            "config_runtime": lambda x: np.concatenate(x.tolist(), axis=0),
+                            "search": "first",
+                        }
+                    )
+                    .reset_index()
+                )
+        else:
+            if not use_compressed:
+                self.df = load_df(os.path.join(data_folder, data_type, source, search), split)
+            else:
+                self.df = load_df(
+                    os.path.join(data_folder, data_type, source + "_compressed", search), split
+                )
+
+            self.df["search"] = search
+
         self.scaler = scaler
         self.tgt_scaler = tgt_scaler
         if self.scaler is not None:
@@ -121,6 +247,9 @@ class LayoutDataset(Dataset):
             )
         self.max_configs = max_configs
         self.split = split
+        self.select_close_runtimes = select_close_runtimes
+        self.select_close_runtimes_prob = select_close_runtimes_prob
+
         # break dataset into batch size chunks
         if self.split in ["valid", "valid_dedup", "test"]:
             new_df = []
@@ -141,6 +270,7 @@ class LayoutDataset(Dataset):
                             "edge_index": row["edge_index"],
                             "node_config_ids": row["node_config_ids"],
                             "config_runtime": subset_runtime,
+                            "search": row["search"],
                         }
                     )
             self.df = pd.DataFrame.from_dict(new_df)
@@ -166,6 +296,7 @@ class LayoutDataset(Dataset):
         edge_index = torch.tensor(np.swapaxes(row["edge_index"], 0, 1).astype(np.int64))
 
         # layout only
+        # sparse_node_config_feat = row["node_config_feat"].astype(np.int8)
         sparse_node_config_feat = row["node_config_feat"]  # .astype(np.int8)
         node_config_ids = row["node_config_ids"].astype(np.int64)
 
@@ -177,9 +308,30 @@ class LayoutDataset(Dataset):
         elif sparse_node_config_feat.shape[0] <= self.max_configs:
             random_indices = list(range(sparse_node_config_feat.shape[0]))
         else:
-            random_indices = random.sample(
-                range(sparse_node_config_feat.shape[0]), self.max_configs
-            )
+            if self.select_close_runtimes:
+                if np.random.rand() > self.select_close_runtimes_prob:
+                    random_indices = random.sample(
+                        range(sparse_node_config_feat.shape[0]), self.max_configs
+                    )
+                else:
+                    sorted_indices = np.argsort(target)
+
+                    # select a list of k * max_configs indices then randomly select max_configs indices
+                    k = np.random.randint(1, 5)
+                    if k * self.max_configs < len(sorted_indices):
+                        start_idx = np.random.randint(
+                            0, len(sorted_indices) - k * self.max_configs
+                        )
+                    else:
+                        start_idx = 0
+
+                    end_idx = start_idx + k * self.max_configs
+                    random_indices = sorted_indices[start_idx:end_idx]
+                    random_indices = random.sample(random_indices.tolist(), self.max_configs)
+            else:
+                random_indices = random.sample(
+                    range(sparse_node_config_feat.shape[0]), self.max_configs
+                )
 
         sparse_node_config_feat = sparse_node_config_feat[random_indices]
         sparse_node_config_feat = decompress_configs(sparse_node_config_feat).astype(np.int8)
