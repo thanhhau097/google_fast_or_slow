@@ -74,7 +74,7 @@ def main():
         search=data_args.search,
         data_folder=data_args.data_folder,
         split="train",
-        scaler=MinMaxScaler(),
+        scaler=StandardScaler(),
         tgt_scaler=StandardScaler(),
         use_compressed=data_args.use_compressed,
         max_configs=data_args.max_configs,
