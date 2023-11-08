@@ -141,13 +141,20 @@ def gen_graph_display(path, out_path, format="svg"):
         dot.node(str(i), code_mapping[data["node_opcode"][i]])
 
     for i, j in data["edge_index"]:
-        dot.edge(str(i), str(j))
+        dot.edge(str(int(i)), str(int(j)))
 
     dot.render(filename=out_path, view=False)
 
 
 if __name__ == "__main__":
-    path = "./data_new/npz/layout/xla/default/train/resnet50.2x2.fp16.npz"
-    out_path = "./large_graph"
+    gen_graph_display(
+        "./data_new/npz/layout/xla/default/train/resnet50.2x2.fp16.npz",
+        "./large_graph"
+    )
 
-    gen_graph_display(path, out_path)
+    gen_graph_display(
+        "./data_new/npz/layout/xla_pruned/default/train/resnet50.2x2.fp16.npz",
+        "./large_graph_pruned"
+    )
+
+
