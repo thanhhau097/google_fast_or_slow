@@ -7,6 +7,7 @@ import torch
 from torch.utils.data import Dataset
 from tqdm import tqdm
 from sklearn.model_selection import KFold
+import gc
 
 
 def vec_to_int(vec: np.ndarray) -> np.ndarray:
@@ -338,13 +339,13 @@ class DatasetFactory:
             self._scaler_obj = dummy_dataset.scaler
             self._tgt_scaler_obj = dummy_dataset.tgt_scaler
             # Create kfold splits
-            all_data = pd.concat([self.train_df, self.valid_df])
+            self.all_data = pd.concat([self.train_df, self.valid_df]).reset_index(drop=True)
+            del self.train_df, self.valid_df
+            gc.collect()
+            self.all_data["fold"] = None
             kf = KFold(n_splits=kfold, shuffle=True, random_state=seed)
-            self.train_df = []
-            self.valid_df = []
-            for train_idx, valid_idx in kf.split(all_data):
-                self.train_df.append(all_data.iloc[train_idx])
-                self.valid_df.append(all_data.iloc[valid_idx])
+            for i, (_, valid_idx) in enumerate(kf.split(all_data)):
+                self.all_data.loc[valid_idx, "fold"] = i
 
     def get_datasets(self, fold=None):
         if fold is None:
@@ -361,8 +362,6 @@ class DatasetFactory:
                 self.valid_df,
                 split="valid",
                 max_configs=self.max_configs_eval,
-                scaler=self.scaler,
-                tgt_scaler=self.tgt_scaler,
             )
             valid_dataset.scaler = train_dataset.scaler
             valid_dataset.tgt_scaler = train_dataset.tgt_scaler
@@ -370,13 +369,33 @@ class DatasetFactory:
                 self.test_df,
                 split="test",
                 max_configs=self.max_configs_eval,
-                scaler=self.scaler,
-                tgt_scaler=self.tgt_scaler,
             )
             test_dataset.scaler = train_dataset.scaler
             test_dataset.tgt_scaler = train_dataset.tgt_scaler
         else:
-            pass
+            train_dataset = self.dataset_cls(
+                self.all_data[self.all_data["fold"] != fold],
+                split="train",
+                max_configs=self.max_configs,
+                select_close_runtimes=self.select_close_runtimes,
+                select_close_runtimes_prob=self.select_close_runtimes_prob,
+            )
+            train_dataset.scaler = self._scaler_obj
+            train_dataset.tgt_scaler = self._tgt_scaler_obj
+            valid_dataset = self.dataset_cls(
+                self.all_data[self.all_data["fold"] == fold],
+                split="valid",
+                max_configs=self.max_configs_eval,
+            )
+            valid_dataset.scaler = self._scaler_obj
+            valid_dataset.tgt_scaler = self._tgt_scaler_obj
+            test_dataset = self.dataset_cls(
+                self.test_df,
+                split="test",
+                max_configs=self.max_configs_eval,
+            )
+            test_dataset.scaler = self._scaler_obj
+            test_dataset.tgt_scaler = self._tgt_scaler_obj
 
         return train_dataset, valid_dataset, test_dataset
 
