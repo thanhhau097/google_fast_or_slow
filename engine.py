@@ -4,7 +4,7 @@ from typing import Dict
 import numpy as np
 import torch
 import torch.nn.functional as F
-from loss import PairwiseHingeLoss
+from loss import PairwiseHingeLoss, listMLE, PairwiseLogisticLoss
 from scipy.stats import kendalltau
 from torch import nn
 from transformers import Trainer
@@ -15,6 +15,7 @@ from torch.utils.data import DataLoader
 # https://pytorchltr.readthedocs.io/en/stable/loss.html
 def pairwise_hinge_loss(y_pred, y_true):
     loss_fn = PairwiseHingeLoss()
+    # loss_fn = PairwiseLogisticLoss(0.1)
 
     y_pred = y_pred.unsqueeze(0)
     y_true = y_true.unsqueeze(0)
