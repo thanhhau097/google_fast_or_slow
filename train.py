@@ -11,7 +11,7 @@ from transformers import HfArgumentParser, TrainingArguments, set_seed
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
 
 from data_args import DataArguments
-from dataset import LayoutDataset, TileDataset, layout_collate_fn, tile_collate_fn
+from dataset import LayoutDataset, TileDataset, layout_collate_fn, tile_collate_fn, DatasetFactory
 from engine import CustomTrainer, LayoutComputeMetricsFn, TileComputeMetricsFn
 from model import LayoutModel, TileModel, LayoutModel
 from model_args import ModelArguments
@@ -63,39 +63,22 @@ def main():
     # Load dataset
     print("Loading dataset...")
 
-    if data_args.data_type == "tile":
-        dataset_cls = TileDataset
-    else:
-        dataset_cls = LayoutDataset
-
-    train_dataset = dataset_cls(
+    dataset_factory = DatasetFactory(
         data_type=data_args.data_type,
         source=data_args.source,
         search=data_args.search,
         data_folder=data_args.data_folder,
-        split="train",
         scaler=StandardScaler(),
         tgt_scaler=StandardScaler(),
         use_compressed=data_args.use_compressed,
         max_configs=data_args.max_configs,
+        max_configs_eval=data_args.max_configs_eval,  # note that for models with cross attn this matters A LOT. Higher the better
         data_concatenation=data_args.data_concatenation,
         select_close_runtimes=data_args.select_close_runtimes,
         select_close_runtimes_prob=data_args.select_close_runtimes_prob,
         filter_random_configs=data_args.filter_random_configs,
     )
-    val_dataset = dataset_cls(
-        data_type=data_args.data_type,
-        source=data_args.source,
-        search=data_args.search,
-        data_folder=data_args.data_folder,
-        split="valid",
-        use_compressed=data_args.use_compressed,
-        max_configs=data_args.max_configs_eval,
-        data_concatenation=data_args.data_concatenation,
-    )
-    if data_args.data_type == "layout":
-        val_dataset.scaler = train_dataset.scaler
-        val_dataset.tgt_scaler = train_dataset.tgt_scaler
+    train_dataset, val_dataset, test_dataset = dataset_factory.get_datasets()
 
     if data_args.data_type == "tile":
         model = TileModel(
@@ -173,19 +156,7 @@ def main():
     # Inference
     if training_args.do_predict:
         logger.info("*** Predict ***")
-        test_dataset = dataset_cls(
-            data_type=data_args.data_type,
-            source=data_args.source,
-            search=data_args.search,
-            data_folder=data_args.data_folder,
-            split="test",
-            max_configs=data_args.max_configs_eval,  # note that for model with GraphNorm this matters A LOT. Higher the better
-        )
-
         if data_args.data_type == "layout":
-            test_dataset.scaler = train_dataset.scaler
-            test_dataset.tgt_scaler = train_dataset.tgt_scaler
-
             trainer.compute_metrics = LayoutComputeMetricsFn(test_dataset.df, split="test")
         else:
             trainer.compute_metrics = TileComputeMetricsFn(test_dataset.df, split="test")
