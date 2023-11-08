@@ -191,10 +191,9 @@ class PairwiseLogisticLoss(_PairwiseAdditiveLoss):
         return loss
 
 
-
 # https://github.dev/allegro/allRank/blob/master/allrank/models/losses/listMLE.py
 # TODO: not converged yet
-def listMLE(y_pred, y_true, eps=1e-10, padded_value_indicator=-float("inf")):
+def listMLE(y_pred, y_true, eps=1e-10, padded_value_indicator=-100):
     """
     ListMLE loss introduced in "Listwise Approach to Learning to Rank - Theory and Algorithm".
     :param y_pred: predictions from the model, shape [batch_size, slate_length]

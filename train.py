@@ -13,7 +13,7 @@ from transformers.trainer_utils import get_last_checkpoint, is_main_process
 from data_args import DataArguments
 from dataset import LayoutDataset, TileDataset, layout_collate_fn, tile_collate_fn
 from engine import CustomTrainer, LayoutComputeMetricsFn, TileComputeMetricsFn
-from model import LayoutModel, TileModel, GATLayoutModel
+from model import LayoutModel, TileModel, LayoutModel
 from model_args import ModelArguments
 
 torch.set_float32_matmul_precision("high")
@@ -108,7 +108,7 @@ def main():
         collate_fn = tile_collate_fn
         compute_metrics = TileComputeMetricsFn(val_dataset.df)
     else:
-        model = GATLayoutModel(
+        model = LayoutModel(
             hidden_channels=[int(x) for x in model_args.hidden_channels.split(",")],
             graph_in=model_args.graph_in,
             graph_out=model_args.graph_out,
