@@ -38,3 +38,10 @@ class DataArguments:
     use_standard_scaler: bool = field(
         default=False, metadata={"help": "Whether to use standard scaler"}
     )
+    # filter valid/test files to finetune the model
+    valid_file_names: str = field(
+        default="", metadata={"help": "valid files"}
+    )
+    test_file_names: str = field(
+        default="", metadata={"help": "test files"}
+    )
