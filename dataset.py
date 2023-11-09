@@ -48,6 +48,9 @@ def load_df(directory, split):
     for file in tqdm(files):
         d = dict(np.load(os.path.join(path, file)))
         d["file"] = file
+        if len(d["config_runtime"]) <= 1:
+            print(f"skipping {file} as it only contains {len(d['config_runtime'])} configs")
+            continue
         list_df.append(d)
     return pd.DataFrame.from_dict(list_df)
 
@@ -110,12 +113,14 @@ class LayoutDataset(Dataset):
         select_close_runtimes=False,
         select_close_runtimes_prob=0.5,
         filter_random_configs=False,
-        **kwargs
+        **kwargs,
     ):
         if search == "mix":
             # in mix mode, we load all the data both from default and random
             if not use_compressed:
-                default_df = load_df(os.path.join(data_folder, data_type, source, "default"), split)
+                default_df = load_df(
+                    os.path.join(data_folder, data_type, source, "default"), split
+                )
                 random_df = load_df(os.path.join(data_folder, data_type, source, "random"), split)
             else:
                 default_df = load_df(
@@ -130,7 +135,9 @@ class LayoutDataset(Dataset):
                 print("Filtering random configs")
                 filtered_random_df = []
                 for file in tqdm(default_df["file"].unique()):
-                    default_runtime = default_df[default_df["file"] == file]["config_runtime"].values[0]
+                    default_runtime = default_df[default_df["file"] == file][
+                        "config_runtime"
+                    ].values[0]
                     file_df = random_df.loc[random_df["file"] == file]
 
                     # filter out node_config_feat and runtime that are not in range of min and max default runtime
@@ -167,7 +174,12 @@ class LayoutDataset(Dataset):
                                 bin_indices_i = np.where(np.array(bin_indices) == i)[0]
                                 if len(bin_indices_i) > 0:
                                     # num_samples is number of default runtimes in bin i
-                                    num_samples = np.sum(np.logical_and(default_runtime < bins[i + 1], default_runtime >= bins[i]))
+                                    num_samples = np.sum(
+                                        np.logical_and(
+                                            default_runtime < bins[i + 1],
+                                            default_runtime >= bins[i],
+                                        )
+                                    )
                                     sampled_indices = np.random.choice(
                                         bin_indices_i,
                                         # num_samples
@@ -176,9 +188,11 @@ class LayoutDataset(Dataset):
                                     )
                                     sampled_runtimes.extend(sampled_indices)
                                     sampled_node_config_feat.extend(sampled_indices)
-                            
+
                             sampled_runtimes = np.array(filtered_runtimes)[sampled_runtimes]
-                            sampled_node_config_feat = np.array(filtered_node_config_feat)[sampled_node_config_feat]
+                            sampled_node_config_feat = np.array(filtered_node_config_feat)[
+                                sampled_node_config_feat
+                            ]
 
                             # new_dict[col] = [np.array(filtered_runtimes)]
                             # new_dict["node_config_feat"] = [np.array(filtered_node_config_feat)]
@@ -198,22 +212,28 @@ class LayoutDataset(Dataset):
 
             # group by file, mix configs
             if split == "train" and not data_concatenation:
-                self.df = self.df.groupby("file").agg(
-                    {
-                        "node_feat": "first",
-                        "node_opcode": "first",
-                        "edge_index": "first",
-                        "node_config_feat": lambda x: np.concatenate(x.tolist(), axis=0),
-                        "node_config_ids": "first",
-                        "config_runtime": lambda x: np.concatenate(x.tolist(), axis=0),
-                        "search": "first",
-                    }
-                ).reset_index()
+                self.df = (
+                    self.df.groupby("file")
+                    .agg(
+                        {
+                            "node_feat": "first",
+                            "node_opcode": "first",
+                            "edge_index": "first",
+                            "node_config_feat": lambda x: np.concatenate(x.tolist(), axis=0),
+                            "node_config_ids": "first",
+                            "config_runtime": lambda x: np.concatenate(x.tolist(), axis=0),
+                            "search": "first",
+                        }
+                    )
+                    .reset_index()
+                )
         else:
             if not use_compressed:
                 self.df = load_df(os.path.join(data_folder, data_type, source, search), split)
             else:
-                self.df = load_df(os.path.join(data_folder, data_type, source + "_compressed", search), split)
+                self.df = load_df(
+                    os.path.join(data_folder, data_type, source + "_compressed", search), split
+                )
 
             self.df["search"] = search
 
@@ -295,11 +315,13 @@ class LayoutDataset(Dataset):
                     )
                 else:
                     sorted_indices = np.argsort(target)
-                    
+
                     # select a list of k * max_configs indices then randomly select max_configs indices
                     k = np.random.randint(1, 5)
                     if k * self.max_configs < len(sorted_indices):
-                        start_idx = np.random.randint(0, len(sorted_indices) - k * self.max_configs)
+                        start_idx = np.random.randint(
+                            0, len(sorted_indices) - k * self.max_configs
+                        )
                     else:
                         start_idx = 0
 
