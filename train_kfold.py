@@ -85,6 +85,18 @@ def main():
 
     predictions_probs = []
     for fold in range(NB_FOLDS):
+        if not training_args.do_train and model_args.weights_folder:
+            ckpt_path = (
+                Path(model_args.weights_folder)
+                / f"fold_{fold}"
+                / "checkpoint"
+                / "pytorch_model.bin"
+            )
+            if not ckpt_path.exists():
+                print(f"Checkpoint {ckpt_path} not found. Skipping fold {fold}")
+                continue
+            last_checkpoint = str(ckpt_path)
+
         prediction_files, predictions_prob = train_on_fold(
             output_dir,
             data_args,
@@ -166,18 +178,12 @@ def train_on_fold(
     # Initialize trainer
     print("Initializing model...")
 
-    if last_checkpoint is None and model_args.resume is not None:
-        logger.info(f"Loading {model_args.resume} ...")
-        checkpoint = torch.load(model_args.resume, "cpu")
+    if last_checkpoint is not None:
+        logger.info(f"Loading {last_checkpoint} ...")
+        checkpoint = torch.load(last_checkpoint, "cpu")
         if "state_dict" in checkpoint:
             checkpoint = checkpoint.pop("state_dict")
-        # checkpoint = {k[6:]: v for k, v in checkpoint.items()}
         model.load_state_dict(checkpoint)
-
-        # if "fc.weight" in checkpoint:
-        #     model.fc.load_state_dict(
-        #         {"weight": checkpoint["fc.weight"], "bias": checkpoint["fc.bias"]}
-        #     )
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = model.to(device)
