@@ -12,7 +12,7 @@ for collection in ["layout/xla", "layout/nlp"]:
         dst_dir = root / f"{collection}_compressed_kfold" / ctype
         for split in ["train", "valid", "test"]:
             print("Loading {} data...".format(split))
-            split_src_dir = root / collection + "_compressed" / ctype / split
+            split_src_dir = root / (collection + "_compressed") / ctype / split
             split_dst_dir = dst_dir / split
             split_dst_dir.mkdir(parents=True, exist_ok=True)
 
@@ -23,6 +23,11 @@ for collection in ["layout/xla", "layout/nlp"]:
                     continue
 
                 data = dict(np.load(str(npz_path), allow_pickle=True))
+
+                if split == "test":
+                    np.savez_compressed(out_p, **data)
+                    continue
+
                 new_data = {}
                 for k, v in data.items():
                     if k not in ["config_runtime", "node_config_feat"]:
