@@ -8,6 +8,13 @@ from torch.utils.data import Dataset
 from tqdm import tqdm
 from sklearn.model_selection import KFold
 import gc
+import pickle
+from pathlib import Path
+
+
+def save_scaler(scaler, filename):
+    with open(filename, "wb") as f:
+        pickle.dump(scaler, f)
 
 
 def vec_to_int(vec: np.ndarray) -> np.ndarray:
@@ -325,29 +332,33 @@ class DatasetFactory:
 
         self.dataset_cls = LayoutDataset if data_type == "layout" else TileDataset
         if kfold:
-            all_data = pd.concat([self.train_df, self.valid_df, self.test_df])
+            # all_data = pd.concat([self.train_df, self.valid_df, self.test_df])
             # Create dummy dataset just to get the scaler in a deterministic way
-            dummy_dataset = self.dataset_cls(
-                all_data,
-                split="train",
-                max_configs=self.max_configs,
-                scaler=self.scaler,
-                tgt_scaler=self.tgt_scaler,
-                select_close_runtimes=self.select_close_runtimes,
-                select_close_runtimes_prob=self.select_close_runtimes_prob,
-            )
-            self._scaler_obj = dummy_dataset.scaler
-            self._tgt_scaler_obj = dummy_dataset.tgt_scaler
+            # dummy_dataset = self.dataset_cls(
+            #     all_data,
+            #     split="train",
+            #     max_configs=self.max_configs,
+            #     scaler=self.scaler,
+            #     tgt_scaler=self.tgt_scaler,
+            #     select_close_runtimes=self.select_close_runtimes,
+            #     select_close_runtimes_prob=self.select_close_runtimes_prob,
+            # )
+            # self._scaler_obj = dummy_dataset.scaler
+            # self._tgt_scaler_obj = dummy_dataset.tgt_scaler
             # Create kfold splits
             self.all_data = pd.concat([self.train_df, self.valid_df]).reset_index(drop=True)
             del self.train_df, self.valid_df
             gc.collect()
             self.all_data["fold"] = None
             kf = KFold(n_splits=kfold, shuffle=True, random_state=seed)
-            for i, (_, valid_idx) in enumerate(kf.split(all_data)):
+            for i, (_, valid_idx) in enumerate(kf.split(self.all_data)):
                 self.all_data.loc[valid_idx, "fold"] = i
+            # dump to disc to reproduce
+            self.all_data[["file", "fold"]].to_csv(
+                f"{source}:{search}_fold_splits.csv", index=False
+            )
 
-    def get_datasets(self, fold=None):
+    def get_datasets(self, fold=None, output_dir=None):
         if fold is None:
             train_dataset = self.dataset_cls(
                 self.train_df,
@@ -376,26 +387,36 @@ class DatasetFactory:
             train_dataset = self.dataset_cls(
                 self.all_data[self.all_data["fold"] != fold],
                 split="train",
+                scaler=self.scaler,
+                tgt_scaler=self.tgt_scaler,
                 max_configs=self.max_configs,
                 select_close_runtimes=self.select_close_runtimes,
                 select_close_runtimes_prob=self.select_close_runtimes_prob,
             )
-            train_dataset.scaler = self._scaler_obj
-            train_dataset.tgt_scaler = self._tgt_scaler_obj
+            # train_dataset.scaler = self._scaler_obj
+            # train_dataset.tgt_scaler = self._tgt_scaler_obj
             valid_dataset = self.dataset_cls(
                 self.all_data[self.all_data["fold"] == fold],
                 split="valid",
                 max_configs=self.max_configs_eval,
             )
-            valid_dataset.scaler = self._scaler_obj
-            valid_dataset.tgt_scaler = self._tgt_scaler_obj
+            # valid_dataset.scaler = self._scaler_obj
+            # valid_dataset.tgt_scaler = self._tgt_scaler_obj
+            valid_dataset.scaler = train_dataset.scaler
+            valid_dataset.tgt_scaler = train_dataset.tgt_scaler
             test_dataset = self.dataset_cls(
                 self.test_df,
                 split="test",
                 max_configs=self.max_configs_eval,
             )
-            test_dataset.scaler = self._scaler_obj
-            test_dataset.tgt_scaler = self._tgt_scaler_obj
+            # test_dataset.scaler = self._scaler_obj
+            # test_dataset.tgt_scaler = self._tgt_scaler_obj
+            test_dataset.scaler = train_dataset.scaler
+            test_dataset.tgt_scaler = train_dataset.tgt_scaler
+            # Dump scalers to disk
+            if output_dir is not None:
+                save_scaler(train_dataset.scaler, str(Path(output_dir) / "scaler.pkl"))
+                save_scaler(train_dataset.tgt_scaler, str(Path(output_dir) / "tgt_scaler.pkl"))
 
         return train_dataset, valid_dataset, test_dataset
 
