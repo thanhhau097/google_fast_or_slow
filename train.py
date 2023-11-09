@@ -82,6 +82,8 @@ def main():
         select_close_runtimes=data_args.select_close_runtimes,
         select_close_runtimes_prob=data_args.select_close_runtimes_prob,
         filter_random_configs=data_args.filter_random_configs,
+        valid_file_names=data_args.valid_file_names,
+        test_file_names=data_args.test_file_names,
     )
     val_dataset = dataset_cls(
         data_type=data_args.data_type,
@@ -92,6 +94,8 @@ def main():
         use_compressed=data_args.use_compressed,
         max_configs=data_args.max_configs_eval,
         data_concatenation=data_args.data_concatenation,
+        valid_file_names=data_args.valid_file_names,
+        test_file_names=data_args.test_file_names,
     )
     if data_args.data_type == "layout":
         val_dataset.scaler = train_dataset.scaler
@@ -152,6 +156,9 @@ def main():
         compute_metrics=compute_metrics,
         data_type=data_args.data_type,
     )
+
+    if last_checkpoint is not None or model_args.resume is not None:
+        trainer.evaluate()
 
     # Training
     if training_args.do_train:

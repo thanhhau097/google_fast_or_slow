@@ -7,6 +7,8 @@ import torch
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
+from utils import find_layout_train_files_have_same_architecture
+
 
 def vec_to_int(vec: np.ndarray) -> np.ndarray:
     # Powers of 7: [1, 7, 49, 343, 2401, 16807]
@@ -113,6 +115,8 @@ class LayoutDataset(Dataset):
         select_close_runtimes=False,
         select_close_runtimes_prob=0.5,
         filter_random_configs=False,
+        valid_file_names="",
+        test_file_names="",
         **kwargs,
     ):
         if search == "mix":
@@ -236,6 +240,50 @@ class LayoutDataset(Dataset):
                 )
 
             self.df["search"] = search
+
+        # filter valid/test files to finetune the model
+        if not valid_file_names and not test_file_names:
+            pass
+        else:
+            val_mapping, test_mapping, test_to_val_mapping = find_layout_train_files_have_same_architecture(
+                data_folder, source, search
+            )
+            if valid_file_names:
+                if split == "train":
+                    all_valid_file_names = valid_file_names.split(",")
+                    filtered_train_files = []
+                    for file_name in all_valid_file_names:
+                        filtered_train_files.extend(val_mapping[file_name])
+                    
+                    if len(filtered_train_files) > 0:
+                        self.df = self.df[self.df["file"].isin(filtered_train_files)]
+                    else:
+                        raise ValueError("No train files found for this valid file")
+                elif split == "valid":
+                    self.df = self.df[self.df["file"].isin(valid_file_names.split(","))]
+            elif test_file_names:
+                if split == "train":
+                    all_test_file_names = test_file_names.split(",")
+                    filtered_train_files = []
+                    for file_name in all_test_file_names:
+                        filtered_train_files.extend(test_mapping[file_name])
+                    
+                    if len(filtered_train_files) > 0:
+                        self.df = self.df[self.df["file"].isin(filtered_train_files)]
+                    else:
+                        raise ValueError("No train files found for this test file")
+
+                # find val files that have the same edge_index as test files
+                if split == "valid":
+                    all_test_file_names = test_file_names.split(",")
+                    filtered_valid_files = []
+                    for file_name in all_test_file_names:
+                        filtered_valid_files.extend(test_to_val_mapping[file_name])
+                    
+                    if len(filtered_valid_files) > 0:
+                        self.df = self.df[self.df["file"].isin(filtered_valid_files)]
+                    else:
+                        raise ValueError("No valid files found for this test file")
 
         self.scaler = scaler
         self.tgt_scaler = tgt_scaler

@@ -214,6 +214,7 @@ class LayoutComputeMetricsFn:
 
                 score = kendalltau(prediction, gt_ranks).statistic
                 scores.append(score)
+                print(f"file: {file_id} \t score: {score}")
 
             score_dict["kendalltau_" + search] = np.mean(scores)
 
