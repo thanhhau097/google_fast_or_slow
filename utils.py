@@ -71,17 +71,15 @@ def find_layout_train_files_have_same_architecture(
     # print("-----------" * 10)
     # val_json_path = os.path.join(save_folder, f"{source}_{search}_valid.json")
     # with open(val_json_path, "w") as f:
-    #     json.dump(val_files_dict, f, indent=4)
+    #     json.dump(val_mapping, f, indent=4)
 
     # test_json_path = os.path.join(save_folder, f"{source}_{search}_test.json")
     # with open(test_json_path, "w") as f:
-    #     json.dump(test_files_dict, f, indent=4)
+    #     json.dump(test_mapping, f, indent=4)
 
     # test_to_val_json_path = os.path.join(save_folder, f"{source}_{search}_test_to_valid.json")
     # with open(test_to_val_json_path, "w") as f:
-    #     json.dump(test_to_val_files_dict, f, indent=4)
-
-    # return val_json_path, test_json_path, test_to_val_json_path
+    #     json.dump(test_to_val_mapping, f, indent=4)
 
     return val_mapping, test_mapping, test_to_val_mapping
 
