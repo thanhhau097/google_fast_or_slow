@@ -38,3 +38,6 @@ class DataArguments:
     use_standard_scaler: bool = field(
         default=False, metadata={"help": "Whether to use standard scaler"}
     )
+    fold: int = field(
+        default=0, metadata={"help": "Which fold to use. 0-8 for kfold, -1 for all folds"}
+    )

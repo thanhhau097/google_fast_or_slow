@@ -20,8 +20,6 @@ from model_args import ModelArguments
 torch.set_float32_matmul_precision("high")
 logger = logging.getLogger(__name__)
 
-NB_FOLDS = 9
-
 
 def main():
     parser = HfArgumentParser((DataArguments, ModelArguments, TrainingArguments))
@@ -80,11 +78,16 @@ def main():
         select_close_runtimes=data_args.select_close_runtimes,
         select_close_runtimes_prob=data_args.select_close_runtimes_prob,
         filter_random_configs=data_args.filter_random_configs,
-        kfold=NB_FOLDS,
+        kfold=True,
     )
 
+    if data_args.fold == -1:
+        training_folds = list(range(NB_FOLDS))
+    else:
+        training_folds = [data_args.fold]
+
     predictions_probs = []
-    for fold in range(NB_FOLDS):
+    for fold in range(training_folds):
         if not training_args.do_train and model_args.weights_folder:
             ckpt_path = (
                 Path(model_args.weights_folder)
