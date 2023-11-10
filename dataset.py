@@ -298,6 +298,7 @@ class DatasetFactory:
         self.tgt_scaler = tgt_scaler
         self.select_close_runtimes = select_close_runtimes
         self.select_close_runtimes_prob = select_close_runtimes_prob
+        self.kfold = kfold
 
         self.train_df = self._load_data(
             data_folder,
@@ -355,13 +356,19 @@ class DatasetFactory:
             del self.train_df, self.valid_df
             gc.collect()
             self.all_data["fold"] = None
-            kf = KFold(n_splits=kfold, shuffle=True, random_state=seed)
-            for i, (_, valid_idx) in enumerate(kf.split(self.all_data)):
-                self.all_data.loc[valid_idx, "fold"] = i
-            # dump to disc to reproduce
-            self.all_data[["file", "fold"]].to_csv(
-                f"{source}:{search}_fold_splits.csv", index=False
-            )
+            # kf = KFold(n_splits=kfold, shuffle=True, random_state=seed)
+            # for i, (_, valid_idx) in enumerate(kf.split(self.all_data)):
+            #     self.all_data.loc[valid_idx, "fold"] = i
+            # # dump to disc to reproduce
+            # self.all_data[["file", "fold"]].to_csv(
+            #     f"{source}:{search}_fold_splits.csv", index=False
+            # )
+
+            # split k fold based on file name
+            def get_fold(filename):
+                return int(filename.split("@")[1].split(".")[0])
+
+            self.all_data["fold"] = self.all_data["file"].apply(get_fold)
 
     def get_datasets(self, fold=None, output_dir=None):
         if fold is None:
@@ -455,12 +462,22 @@ class DatasetFactory:
                 )
                 random_df = load_df(os.path.join(data_folder, data_type, source, "random"), split)
             else:
-                default_df = load_df(
-                    os.path.join(data_folder, data_type, source + "_compressed", "default"), split
-                )
-                random_df = load_df(
-                    os.path.join(data_folder, data_type, source + "_compressed", "random"), split
-                )
+                if self.kfold:
+                    default_df = load_df(
+                        os.path.join(data_folder, data_type, source + "_compressed_kfold", "default"),
+                        split,
+                    )
+                    random_df = load_df(
+                        os.path.join(data_folder, data_type, source + "_compressed_kfold", "random"),
+                        split,
+                    )
+                else:
+                    default_df = load_df(
+                        os.path.join(data_folder, data_type, source + "_compressed", "default"), split
+                    )
+                    random_df = load_df(
+                        os.path.join(data_folder, data_type, source + "_compressed", "random"), split
+                    )
 
             # only keep random configs that has runtime inside range of default configs
             if split == "train" and filter_random_configs:
@@ -563,9 +580,15 @@ class DatasetFactory:
             if not use_compressed:
                 df = load_df(os.path.join(data_folder, data_type, source, search), split)
             else:
-                df = load_df(
-                    os.path.join(data_folder, data_type, source + "_compressed", search), split
-                )
+                if self.kfold:
+                    df = load_df(
+                        os.path.join(data_folder, data_type, source + "_compressed_kfold", search),
+                        split,
+                    )
+                else:
+                    df = load_df(
+                        os.path.join(data_folder, data_type, source + "_compressed", search), split
+                    )
 
             df["search"] = search
         return df

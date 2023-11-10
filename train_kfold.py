@@ -20,7 +20,7 @@ from model_args import ModelArguments
 torch.set_float32_matmul_precision("high")
 logger = logging.getLogger(__name__)
 
-NB_FOLDS = 10
+NB_FOLDS = 9
 
 
 def main():
