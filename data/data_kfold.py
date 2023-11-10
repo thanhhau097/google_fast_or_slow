@@ -37,6 +37,8 @@ for collection in ["layout/xla", "layout/nlp"]:
                 node_config_feat = data["node_config_feat"]
 
                 # random index
+                # set seed
+                np.random.seed(42)
                 idx = np.random.permutation(config_runtime.shape[0])
                 for i in range(NUM_FOLDS):
                     start = i * config_runtime.shape[0] // NUM_FOLDS
