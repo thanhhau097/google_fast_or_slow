@@ -20,7 +20,7 @@ from model_args import ModelArguments
 torch.set_float32_matmul_precision("high")
 logger = logging.getLogger(__name__)
 
-NB_FOLDS = 10
+NB_FOLDS = 5
 
 
 def main():
@@ -80,7 +80,7 @@ def main():
         select_close_runtimes=data_args.select_close_runtimes,
         select_close_runtimes_prob=data_args.select_close_runtimes_prob,
         filter_random_configs=data_args.filter_random_configs,
-        kfold=NB_FOLDS,
+        # kfold=NB_FOLDS,
     )
 
     predictions_probs = []
@@ -147,7 +147,7 @@ def train_on_fold(
     training_args.output_dir = str(training_args.output_dir)
 
     train_dataset, val_dataset, test_dataset = dataset_factory.get_datasets(
-        fold, output_dir=training_args.output_dir
+        # fold, output_dir=training_args.output_dir
     )
     if data_args.data_type == "tile":
         model = TileModel(

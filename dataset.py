@@ -131,7 +131,6 @@ class LayoutDataset(Dataset):
         self.split = split
         self.select_close_runtimes = select_close_runtimes
         self.select_close_runtimes_prob = select_close_runtimes_prob
-        print(self.select_close_runtimes)
 
         # break dataset into batch size chunks
         if self.split in ["valid", "valid_dedup", "test"]:
@@ -333,22 +332,22 @@ class DatasetFactory:
         self.dataset_cls = LayoutDataset if data_type == "layout" else TileDataset
 
         # Create dummy dataset just to get the scaler in a deterministic way
-        all_data = pd.concat([self.train_df, self.valid_df, self.test_df])
-        dummy_dataset = self.dataset_cls(
-            all_data,
-            split="train",
-            max_configs=self.max_configs,
-            scaler=self.scaler,
-        )
-        self._scaler_obj = dummy_dataset.scaler
-        all_data = pd.concat([self.train_df, self.valid_df])
-        dummy_dataset = self.dataset_cls(
-            all_data,
-            split="train",
-            max_configs=self.max_configs,
-            tgt_scaler=self.tgt_scaler,
-        )
-        self._tgt_scaler_obj = dummy_dataset.tgt_scaler
+        # all_data = pd.concat([self.train_df, self.valid_df, self.test_df])
+        # dummy_dataset = self.dataset_cls(
+        #     all_data,
+        #     split="train",
+        #     max_configs=self.max_configs,
+        #     scaler=self.scaler,
+        # )
+        # self._scaler_obj = dummy_dataset.scaler
+        # all_data = pd.concat([self.train_df, self.valid_df])
+        # dummy_dataset = self.dataset_cls(
+        #     all_data,
+        #     split="train",
+        #     max_configs=self.max_configs,
+        #     tgt_scaler=self.tgt_scaler,
+        # )
+        # self._tgt_scaler_obj = dummy_dataset.tgt_scaler
         if kfold:
             # Create kfold splits
             self.all_data = pd.concat([self.train_df, self.valid_df]).reset_index(drop=True)
@@ -369,65 +368,65 @@ class DatasetFactory:
                 self.train_df,
                 split="train",
                 max_configs=self.max_configs,
-                # scaler=self.scaler,
-                # tgt_scaler=self.tgt_scaler,
+                scaler=self.scaler,
+                tgt_scaler=self.tgt_scaler,
                 select_close_runtimes=self.select_close_runtimes,
                 select_close_runtimes_prob=self.select_close_runtimes_prob,
             )
-            train_dataset.scaler = self._scaler_obj
-            train_dataset.tgt_scaler = self._tgt_scaler_obj
+            # train_dataset.scaler = self._scaler_obj
+            # train_dataset.tgt_scaler = self._tgt_scaler_obj
 
             valid_dataset = self.dataset_cls(
                 self.valid_df,
                 split="valid",
                 max_configs=self.max_configs_eval,
             )
-            valid_dataset.scaler = self._scaler_obj
-            valid_dataset.tgt_scaler = self._tgt_scaler_obj
-            # valid_dataset.scaler = train_dataset.scaler
-            # valid_dataset.tgt_scaler = train_dataset.tgt_scaler
+            # valid_dataset.scaler = self._scaler_obj
+            # valid_dataset.tgt_scaler = self._tgt_scaler_obj
+            valid_dataset.scaler = train_dataset.scaler
+            valid_dataset.tgt_scaler = train_dataset.tgt_scaler
 
             test_dataset = self.dataset_cls(
                 self.test_df,
                 split="test",
                 max_configs=self.max_configs_eval,
             )
-            test_dataset.scaler = self._scaler_obj
-            test_dataset.tgt_scaler = self._tgt_scaler_obj
-            # test_dataset.scaler = train_dataset.scaler
-            # test_dataset.tgt_scaler = train_dataset.tgt_scaler
+            # test_dataset.scaler = self._scaler_obj
+            # test_dataset.tgt_scaler = self._tgt_scaler_obj
+            test_dataset.scaler = train_dataset.scaler
+            test_dataset.tgt_scaler = train_dataset.tgt_scaler
         else:
             train_dataset = self.dataset_cls(
                 self.all_data[self.all_data["fold"] != fold],
                 split="train",
-                # scaler=self.scaler,
-                # tgt_scaler=self.tgt_scaler,
+                scaler=self.scaler,
+                tgt_scaler=self.tgt_scaler,
                 max_configs=self.max_configs,
                 select_close_runtimes=self.select_close_runtimes,
                 select_close_runtimes_prob=self.select_close_runtimes_prob,
             )
-            train_dataset.scaler = self._scaler_obj
-            train_dataset.tgt_scaler = self._tgt_scaler_obj
+            # train_dataset.scaler = self._scaler_obj
+            # train_dataset.tgt_scaler = self._tgt_scaler_obj
 
             valid_dataset = self.dataset_cls(
                 self.all_data[self.all_data["fold"] == fold],
                 split="valid",
                 max_configs=self.max_configs_eval,
             )
-            valid_dataset.scaler = self._scaler_obj
-            valid_dataset.tgt_scaler = self._tgt_scaler_obj
-            # valid_dataset.scaler = train_dataset.scaler
-            # valid_dataset.tgt_scaler = train_dataset.tgt_scaler
+            # valid_dataset.scaler = self._scaler_obj
+            # valid_dataset.tgt_scaler = self._tgt_scaler_obj
+            valid_dataset.scaler = train_dataset.scaler
+            valid_dataset.tgt_scaler = train_dataset.tgt_scaler
 
             test_dataset = self.dataset_cls(
                 self.test_df,
                 split="test",
                 max_configs=self.max_configs_eval,
             )
-            test_dataset.scaler = self._scaler_obj
-            test_dataset.tgt_scaler = self._tgt_scaler_obj
-            # test_dataset.scaler = train_dataset.scaler
-            # test_dataset.tgt_scaler = train_dataset.tgt_scaler
+            # test_dataset.scaler = self._scaler_obj
+            # test_dataset.tgt_scaler = self._tgt_scaler_obj
+            test_dataset.scaler = train_dataset.scaler
+            test_dataset.tgt_scaler = train_dataset.tgt_scaler
 
             # Dump scalers to disk
             if output_dir is not None:
