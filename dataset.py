@@ -6,6 +6,15 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 from tqdm import tqdm
+from sklearn.model_selection import KFold
+import gc
+import pickle
+from pathlib import Path
+
+
+def save_scaler(scaler, filename):
+    with open(filename, "wb") as f:
+        pickle.dump(scaler, f)
 
 
 def vec_to_int(vec: np.ndarray) -> np.ndarray:
@@ -100,143 +109,16 @@ def tile_collate_fn(batch):
 class LayoutDataset(Dataset):
     def __init__(
         self,
-        data_type,
-        source,
-        search,
-        data_folder,
+        df,
         split="train",
         max_configs=64,
         scaler=None,
         tgt_scaler=None,
-        use_compressed=True,
-        data_concatenation=False,
         select_close_runtimes=False,
         select_close_runtimes_prob=0.5,
-        filter_random_configs=False,
         **kwargs,
     ):
-        if search == "mix":
-            # in mix mode, we load all the data both from default and random
-            if not use_compressed:
-                default_df = load_df(
-                    os.path.join(data_folder, data_type, source, "default"), split
-                )
-                random_df = load_df(os.path.join(data_folder, data_type, source, "random"), split)
-            else:
-                default_df = load_df(
-                    os.path.join(data_folder, data_type, source + "_compressed", "default"), split
-                )
-                random_df = load_df(
-                    os.path.join(data_folder, data_type, source + "_compressed", "random"), split
-                )
-
-            # only keep random configs that has runtime inside range of default configs
-            if split == "train" and filter_random_configs:
-                print("Filtering random configs")
-                filtered_random_df = []
-                for file in tqdm(default_df["file"].unique()):
-                    default_runtime = default_df[default_df["file"] == file][
-                        "config_runtime"
-                    ].values[0]
-                    file_df = random_df.loc[random_df["file"] == file]
-
-                    # filter out node_config_feat and runtime that are not in range of min and max default runtime
-                    min_runtime = min(default_runtime)
-                    max_runtime = max(default_runtime)
-
-                    new_dict = {}
-                    for col in file_df.columns:
-                        if col == "config_runtime":
-                            filtered_runtimes = []
-                            filtered_node_config_feat = []
-                            for runtime, node_config_feat in zip(
-                                file_df[col].values[0], file_df["node_config_feat"].values[0]
-                            ):
-                                if min_runtime <= runtime <= max_runtime:
-                                    filtered_runtimes.append(runtime)
-                                    filtered_node_config_feat.append(node_config_feat)
-
-                            # --------- EXPERIMENTAL CODE ---------
-                            # we need to upsampling to distribution of default runtime
-                            # split the default runtime to k bins, then for each bin, we sample from the filtered runtime
-                            k = 128
-                            bins = np.linspace(min_runtime, max_runtime, k + 1)
-                            bin_indices = np.digitize(filtered_runtimes, bins)
-                            bin_indices = np.array(bin_indices)
-                            bin_indices = bin_indices - 1
-                            bin_indices = bin_indices.tolist()
-
-                            # for each bin, we sample runtimes from the filtered runtimes
-                            sampled_runtimes = []
-                            sampled_node_config_feat = []
-
-                            for i in range(k):
-                                bin_indices_i = np.where(np.array(bin_indices) == i)[0]
-                                if len(bin_indices_i) > 0:
-                                    # num_samples is number of default runtimes in bin i
-                                    num_samples = np.sum(
-                                        np.logical_and(
-                                            default_runtime < bins[i + 1],
-                                            default_runtime >= bins[i],
-                                        )
-                                    )
-                                    sampled_indices = np.random.choice(
-                                        bin_indices_i,
-                                        # num_samples
-                                        min(num_samples, len(bin_indices_i)),
-                                        # len(bin_indices_i) if num_samples > 0 else 0,
-                                    )
-                                    sampled_runtimes.extend(sampled_indices)
-                                    sampled_node_config_feat.extend(sampled_indices)
-
-                            sampled_runtimes = np.array(filtered_runtimes)[sampled_runtimes]
-                            sampled_node_config_feat = np.array(filtered_node_config_feat)[
-                                sampled_node_config_feat
-                            ]
-
-                            # new_dict[col] = [np.array(filtered_runtimes)]
-                            # new_dict["node_config_feat"] = [np.array(filtered_node_config_feat)]
-                            new_dict[col] = [np.array(sampled_runtimes)]
-                            new_dict["node_config_feat"] = [np.array(sampled_node_config_feat)]
-                        else:
-                            new_dict[col] = file_df[col].values
-
-                    filtered_random_df.append(pd.DataFrame.from_dict(new_dict))
-
-                random_df = pd.concat(filtered_random_df)
-
-            default_df["search"] = "default"
-            random_df["search"] = "random"
-
-            self.df = pd.concat([default_df, random_df])
-
-            # group by file, mix configs
-            if split == "train" and not data_concatenation:
-                self.df = (
-                    self.df.groupby("file")
-                    .agg(
-                        {
-                            "node_feat": "first",
-                            "node_opcode": "first",
-                            "edge_index": "first",
-                            "node_config_feat": lambda x: np.concatenate(x.tolist(), axis=0),
-                            "node_config_ids": "first",
-                            "config_runtime": lambda x: np.concatenate(x.tolist(), axis=0),
-                            "search": "first",
-                        }
-                    )
-                    .reset_index()
-                )
-        else:
-            if not use_compressed:
-                self.df = load_df(os.path.join(data_folder, data_type, source, search), split)
-            else:
-                self.df = load_df(
-                    os.path.join(data_folder, data_type, source + "_compressed", search), split
-                )
-
-            self.df["search"] = search
-
+        self.df = df
         self.scaler = scaler
         self.tgt_scaler = tgt_scaler
         if self.scaler is not None:
@@ -249,6 +131,7 @@ class LayoutDataset(Dataset):
         self.split = split
         self.select_close_runtimes = select_close_runtimes
         self.select_close_runtimes_prob = select_close_runtimes_prob
+        print(self.select_close_runtimes)
 
         # break dataset into batch size chunks
         if self.split in ["valid", "valid_dedup", "test"]:
@@ -387,3 +270,302 @@ def layout_collate_fn(batch):
         "node_config_ids": node_config_ids,
         "target": target,
     }
+
+
+class DatasetFactory:
+    def __init__(
+        self,
+        data_type,
+        source,
+        search,
+        data_folder,
+        max_configs=64,
+        max_configs_eval=512,
+        scaler=None,
+        tgt_scaler=None,
+        use_compressed=True,
+        data_concatenation=False,
+        select_close_runtimes=False,
+        select_close_runtimes_prob=0.5,
+        filter_random_configs=False,
+        kfold=None,
+        seed=123,
+        **kwargs,
+    ):
+        self.max_configs = max_configs
+        self.max_configs_eval = max_configs_eval
+        self.scaler = scaler
+        self.tgt_scaler = tgt_scaler
+        self.select_close_runtimes = select_close_runtimes
+        self.select_close_runtimes_prob = select_close_runtimes_prob
+
+        self.train_df = self._load_data(
+            data_folder,
+            data_type,
+            source,
+            split="train",
+            search=search,
+            use_compressed=use_compressed,
+            data_concatenation=data_concatenation,
+            filter_random_configs=filter_random_configs,
+        )
+        self.valid_df = self._load_data(
+            data_folder,
+            data_type,
+            source,
+            split="valid",
+            search=search,
+            use_compressed=use_compressed,
+            data_concatenation=data_concatenation,
+            filter_random_configs=filter_random_configs,
+        )
+        self.test_df = self._load_data(
+            data_folder,
+            data_type,
+            source,
+            split="test",
+            search=search,
+            use_compressed=use_compressed,
+            data_concatenation=data_concatenation,
+            filter_random_configs=filter_random_configs,
+        )
+
+        self.dataset_cls = LayoutDataset if data_type == "layout" else TileDataset
+
+        # Create dummy dataset just to get the scaler in a deterministic way
+        all_data = pd.concat([self.train_df, self.valid_df, self.test_df])
+        dummy_dataset = self.dataset_cls(
+            all_data,
+            split="train",
+            max_configs=self.max_configs,
+            scaler=self.scaler,
+        )
+        self._scaler_obj = dummy_dataset.scaler
+        all_data = pd.concat([self.train_df, self.valid_df])
+        dummy_dataset = self.dataset_cls(
+            all_data,
+            split="train",
+            max_configs=self.max_configs,
+            tgt_scaler=self.tgt_scaler,
+        )
+        self._tgt_scaler_obj = dummy_dataset.tgt_scaler
+        if kfold:
+            # Create kfold splits
+            self.all_data = pd.concat([self.train_df, self.valid_df]).reset_index(drop=True)
+            del self.train_df, self.valid_df
+            gc.collect()
+            self.all_data["fold"] = None
+            kf = KFold(n_splits=kfold, shuffle=True, random_state=seed)
+            for i, (_, valid_idx) in enumerate(kf.split(self.all_data)):
+                self.all_data.loc[valid_idx, "fold"] = i
+            # dump to disc to reproduce
+            self.all_data[["file", "fold"]].to_csv(
+                f"{source}:{search}_fold_splits.csv", index=False
+            )
+
+    def get_datasets(self, fold=None, output_dir=None):
+        if fold is None:
+            train_dataset = self.dataset_cls(
+                self.train_df,
+                split="train",
+                max_configs=self.max_configs,
+                # scaler=self.scaler,
+                # tgt_scaler=self.tgt_scaler,
+                select_close_runtimes=self.select_close_runtimes,
+                select_close_runtimes_prob=self.select_close_runtimes_prob,
+            )
+            train_dataset.scaler = self._scaler_obj
+            train_dataset.tgt_scaler = self._tgt_scaler_obj
+
+            valid_dataset = self.dataset_cls(
+                self.valid_df,
+                split="valid",
+                max_configs=self.max_configs_eval,
+            )
+            valid_dataset.scaler = self._scaler_obj
+            valid_dataset.tgt_scaler = self._tgt_scaler_obj
+            # valid_dataset.scaler = train_dataset.scaler
+            # valid_dataset.tgt_scaler = train_dataset.tgt_scaler
+
+            test_dataset = self.dataset_cls(
+                self.test_df,
+                split="test",
+                max_configs=self.max_configs_eval,
+            )
+            test_dataset.scaler = self._scaler_obj
+            test_dataset.tgt_scaler = self._tgt_scaler_obj
+            # test_dataset.scaler = train_dataset.scaler
+            # test_dataset.tgt_scaler = train_dataset.tgt_scaler
+        else:
+            train_dataset = self.dataset_cls(
+                self.all_data[self.all_data["fold"] != fold],
+                split="train",
+                # scaler=self.scaler,
+                # tgt_scaler=self.tgt_scaler,
+                max_configs=self.max_configs,
+                select_close_runtimes=self.select_close_runtimes,
+                select_close_runtimes_prob=self.select_close_runtimes_prob,
+            )
+            train_dataset.scaler = self._scaler_obj
+            train_dataset.tgt_scaler = self._tgt_scaler_obj
+
+            valid_dataset = self.dataset_cls(
+                self.all_data[self.all_data["fold"] == fold],
+                split="valid",
+                max_configs=self.max_configs_eval,
+            )
+            valid_dataset.scaler = self._scaler_obj
+            valid_dataset.tgt_scaler = self._tgt_scaler_obj
+            # valid_dataset.scaler = train_dataset.scaler
+            # valid_dataset.tgt_scaler = train_dataset.tgt_scaler
+
+            test_dataset = self.dataset_cls(
+                self.test_df,
+                split="test",
+                max_configs=self.max_configs_eval,
+            )
+            test_dataset.scaler = self._scaler_obj
+            test_dataset.tgt_scaler = self._tgt_scaler_obj
+            # test_dataset.scaler = train_dataset.scaler
+            # test_dataset.tgt_scaler = train_dataset.tgt_scaler
+
+            # Dump scalers to disk
+            if output_dir is not None:
+                save_scaler(train_dataset.scaler, str(Path(output_dir) / "scaler.pkl"))
+                save_scaler(train_dataset.tgt_scaler, str(Path(output_dir) / "tgt_scaler.pkl"))
+
+        return train_dataset, valid_dataset, test_dataset
+
+    def _load_data(
+        self,
+        data_folder,
+        data_type,
+        source,
+        split,
+        search,
+        use_compressed,
+        data_concatenation,
+        filter_random_configs,
+    ):
+        if search == "mix":
+            # in mix mode, we load all the data both from default and random
+            if not use_compressed:
+                default_df = load_df(
+                    os.path.join(data_folder, data_type, source, "default"), split
+                )
+                random_df = load_df(os.path.join(data_folder, data_type, source, "random"), split)
+            else:
+                default_df = load_df(
+                    os.path.join(data_folder, data_type, source + "_compressed", "default"), split
+                )
+                random_df = load_df(
+                    os.path.join(data_folder, data_type, source + "_compressed", "random"), split
+                )
+
+            # only keep random configs that has runtime inside range of default configs
+            if split == "train" and filter_random_configs:
+                print("Filtering random configs")
+                filtered_random_df = []
+                for file in tqdm(default_df["file"].unique()):
+                    default_runtime = default_df[default_df["file"] == file][
+                        "config_runtime"
+                    ].values[0]
+                    file_df = random_df.loc[random_df["file"] == file]
+
+                    # filter out node_config_feat and runtime that are not in range of min and max default runtime
+                    min_runtime = min(default_runtime)
+                    max_runtime = max(default_runtime)
+
+                    new_dict = {}
+                    for col in file_df.columns:
+                        if col == "config_runtime":
+                            filtered_runtimes = []
+                            filtered_node_config_feat = []
+                            for runtime, node_config_feat in zip(
+                                file_df[col].values[0], file_df["node_config_feat"].values[0]
+                            ):
+                                if min_runtime <= runtime <= max_runtime:
+                                    filtered_runtimes.append(runtime)
+                                    filtered_node_config_feat.append(node_config_feat)
+
+                            # --------- EXPERIMENTAL CODE ---------
+                            # we need to upsampling to distribution of default runtime
+                            # split the default runtime to k bins, then for each bin, we sample from the filtered runtime
+                            k = 128
+                            bins = np.linspace(min_runtime, max_runtime, k + 1)
+                            bin_indices = np.digitize(filtered_runtimes, bins)
+                            bin_indices = np.array(bin_indices)
+                            bin_indices = bin_indices - 1
+                            bin_indices = bin_indices.tolist()
+
+                            # for each bin, we sample runtimes from the filtered runtimes
+                            sampled_runtimes = []
+                            sampled_node_config_feat = []
+
+                            for i in range(k):
+                                bin_indices_i = np.where(np.array(bin_indices) == i)[0]
+                                if len(bin_indices_i) > 0:
+                                    # num_samples is number of default runtimes in bin i
+                                    num_samples = np.sum(
+                                        np.logical_and(
+                                            default_runtime < bins[i + 1],
+                                            default_runtime >= bins[i],
+                                        )
+                                    )
+                                    sampled_indices = np.random.choice(
+                                        bin_indices_i,
+                                        # num_samples
+                                        min(num_samples, len(bin_indices_i)),
+                                        # len(bin_indices_i),
+                                    )
+                                    sampled_runtimes.extend(sampled_indices)
+                                    sampled_node_config_feat.extend(sampled_indices)
+
+                            sampled_runtimes = np.array(filtered_runtimes)[sampled_runtimes]
+                            sampled_node_config_feat = np.array(filtered_node_config_feat)[
+                                sampled_node_config_feat
+                            ]
+
+                            # new_dict[col] = [np.array(filtered_runtimes)]
+                            # new_dict["node_config_feat"] = [np.array(filtered_node_config_feat)]
+                            new_dict[col] = [np.array(sampled_runtimes)]
+                            new_dict["node_config_feat"] = [np.array(sampled_node_config_feat)]
+                        else:
+                            new_dict[col] = file_df[col].values
+
+                    filtered_random_df.append(pd.DataFrame.from_dict(new_dict))
+
+                random_df = pd.concat(filtered_random_df)
+
+            default_df["search"] = "default"
+            random_df["search"] = "random"
+
+            df = pd.concat([default_df, random_df])
+
+            # group by file, mix configs
+            if split == "train" and not data_concatenation:
+                df = (
+                    df.groupby("file")
+                    .agg(
+                        {
+                            "node_feat": "first",
+                            "node_opcode": "first",
+                            "edge_index": "first",
+                            "node_config_feat": lambda x: np.concatenate(x.tolist(), axis=0),
+                            "node_config_ids": "first",
+                            "config_runtime": lambda x: np.concatenate(x.tolist(), axis=0),
+                            "search": "first",
+                        }
+                    )
+                    .reset_index()
+                )
+        else:
+            if not use_compressed:
+                df = load_df(os.path.join(data_folder, data_type, source, search), split)
+            else:
+                df = load_df(
+                    os.path.join(data_folder, data_type, source + "_compressed", search), split
+                )
+
+            df["search"] = search
+        return df
