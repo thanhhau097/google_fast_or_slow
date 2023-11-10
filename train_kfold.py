@@ -81,6 +81,7 @@ def main():
         kfold=True,
     )
 
+    NB_FOLDS = 9
     if data_args.fold == -1:
         training_folds = list(range(NB_FOLDS))
     else:
@@ -254,6 +255,33 @@ def train_on_fold(
                 f"{data_args.data_type}:{data_args.source}:{data_args.search}:" + file_id[:-4]
             )
             prediction_indices.append(";".join([str(int(e)) for e in prediction]))
+
+    # architecture fine-tuning
+    if data_args.architecture_finetune:
+        # save current best model then load it back
+        trainer.save_model(os.path.join(training_args.output_dir, str(fold)))
+        for filename in dataset_factory.test_to_val_mapping.keys():
+            # create new datasets
+            train_dataset, val_dataset, test_dataset = dataset_factory.get_datasets(
+                fold, output_dir=training_args.output_dir
+            )
+
+            model.load_state_dict(torch.load(os.path.join(training_args.output_dir, str(fold), "pytorch_model.bin")))
+            
+            new_trainer = CustomTrainer(
+                model=model,
+                args=training_args,
+                train_dataset=train_dataset,
+                eval_dataset=val_dataset,
+                data_collator=collate_fn,
+                compute_metrics=compute_metrics,
+                data_type=data_args.data_type,
+            )
+
+            # TODO: finetune with new dataset
+
+            # TODO: export prediction probs then save to folder
+
     return prediction_files, predictions_probs
 
 

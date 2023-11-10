@@ -11,6 +11,8 @@ import gc
 import pickle
 from pathlib import Path
 
+from utils import find_layout_train_files_have_same_architecture
+
 
 def save_scaler(scaler, filename):
     with open(filename, "wb") as f:
@@ -292,6 +294,9 @@ class DatasetFactory:
         seed=123,
         **kwargs,
     ):
+        self.data_folder = data_folder
+        self.source = source
+        self.search = search
         self.max_configs = max_configs
         self.max_configs_eval = max_configs_eval
         self.scaler = scaler
@@ -370,10 +375,37 @@ class DatasetFactory:
 
             self.all_data["fold"] = self.all_data["file"].apply(get_fold)
 
-    def get_datasets(self, fold=None, output_dir=None):
+        # for architecture finetuning
+        self.val_mapping, self.test_mapping, self.test_to_val_mapping = find_layout_train_files_have_same_architecture(
+            data_folder, source, search
+        )
+
+    def get_datasets(
+        self,
+        fold=None,
+        output_dir=None,
+        architecture_finetune=False,
+        architecture_finetune_test_file_names="",
+    ):
+        if all_architecture_finetune_test_file_names:
+            all_architecture_finetune_test_file_names = architecture_finetune_test_file_names.split(",")
+
+            filtered_train_files = []
+            for file_name in all_architecture_finetune_test_file_names:
+                filtered_train_files.extend(self.test_mapping[file_name])
+
+            filtered_valid_files = []
+            for file_name in all_architecture_finetune_test_file_names:
+                filtered_valid_files.extend(self.test_to_val_mapping[file_name])
+
+            if architecture_finetune and (len(filtered_train_files) == 0 or len(filtered_valid_files) == 0):
+                return None
+
         if fold is None:
             train_dataset = self.dataset_cls(
-                self.train_df,
+                self.train_df if len(filtered_train_files) == 0 else self.train_df[
+                    self.train_df["file"].isin(filtered_train_files)
+                ],
                 split="train",
                 max_configs=self.max_configs,
                 # scaler=self.scaler,
@@ -385,7 +417,9 @@ class DatasetFactory:
             train_dataset.tgt_scaler = self._tgt_scaler_obj
 
             valid_dataset = self.dataset_cls(
-                self.valid_df,
+                self.valid_df if len(filtered_valid_files) == 0 else self.valid_df[
+                    self.valid_df["file"].isin(filtered_valid_files)
+                ],
                 split="valid",
                 max_configs=self.max_configs_eval,
             )
@@ -395,7 +429,9 @@ class DatasetFactory:
             # valid_dataset.tgt_scaler = train_dataset.tgt_scaler
 
             test_dataset = self.dataset_cls(
-                self.test_df,
+                self.test_df if len(all_architecture_finetune_test_file_names) == 0 else self.test_df[
+                    self.test_df["file"].isin(all_architecture_finetune_test_file_names)
+                ],
                 split="test",
                 max_configs=self.max_configs_eval,
             )
@@ -405,7 +441,9 @@ class DatasetFactory:
             # test_dataset.tgt_scaler = train_dataset.tgt_scaler
         else:
             train_dataset = self.dataset_cls(
-                self.all_data[self.all_data["fold"] != fold],
+                self.all_data[self.all_data["fold"] != fold] if len(filtered_train_files) == 0 else self.all_data[
+                    (self.all_data["fold"] != fold) & (self.all_data["file"].isin(filtered_train_files))
+                ],
                 split="train",
                 # scaler=self.scaler,
                 # tgt_scaler=self.tgt_scaler,
@@ -417,7 +455,9 @@ class DatasetFactory:
             train_dataset.tgt_scaler = self._tgt_scaler_obj
 
             valid_dataset = self.dataset_cls(
-                self.all_data[self.all_data["fold"] == fold],
+                self.all_data[self.all_data["fold"] == fold] if len(filtered_valid_files) == 0 else self.all_data[
+                    (self.all_data["fold"] == fold) & (self.all_data["file"].isin(filtered_valid_files))
+                ],
                 split="valid",
                 max_configs=self.max_configs_eval,
             )
@@ -427,7 +467,9 @@ class DatasetFactory:
             # valid_dataset.tgt_scaler = train_dataset.tgt_scaler
 
             test_dataset = self.dataset_cls(
-                self.test_df,
+                self.test_df if len(all_architecture_finetune_test_file_names) == 0 else self.test_df[
+                    self.test_df["file"].isin(all_architecture_finetune_test_file_names)
+                ],
                 split="test",
                 max_configs=self.max_configs_eval,
             )
