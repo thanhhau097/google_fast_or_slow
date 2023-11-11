@@ -16,11 +16,14 @@ from dataset import LayoutDataset, TileDataset, layout_collate_fn, tile_collate_
 from engine import CustomTrainer, LayoutComputeMetricsFn, TileComputeMetricsFn
 from model import LayoutModel, TileModel, LayoutModel
 from model_args import ModelArguments
+from train import predict
+from safetensors import safe_open
 
 torch.set_float32_matmul_precision("high")
 logger = logging.getLogger(__name__)
 
 NB_FOLDS = 7
+TTA = None
 
 
 def main():
@@ -83,21 +86,23 @@ def main():
         # kfold=NB_FOLDS,
     )
 
-    predictions_probs = []
+    all_predictions_probs = []
+    all_val_probs = []
     for fold in range(NB_FOLDS):
         if not training_args.do_train and model_args.weights_folder:
             ckpt_path = (
                 Path(model_args.weights_folder)
                 / f"fold_{fold}"
                 / "checkpoint"
-                / "pytorch_model.bin"
+                # / "pytorch_model.bin"
+                / "model.safetensors"
             )
             if not ckpt_path.exists():
                 print(f"Checkpoint {ckpt_path} not found. Skipping fold {fold}")
                 continue
             last_checkpoint = str(ckpt_path)
 
-        prediction_files, predictions_prob = train_on_fold(
+        (prediction_files, predictions_prob), (val_files, val_probs, val_gts) = train_on_fold(
             output_dir,
             data_args,
             model_args,
@@ -106,14 +111,24 @@ def main():
             fold,
             last_checkpoint,
         )
-        predictions_probs.append(predictions_prob)
+        all_predictions_probs.append(predictions_prob)
+        all_val_probs.append(val_probs)
+
+    # Get ensemble validation result
+    avg_val_probs = []
+    for i in range(len(val_files)):
+        avg_val_probs.append(np.stack([x[i] for x in all_val_probs], axis=0).mean(0))
+    metric_fn = LayoutComputeMetricsFn(dataset_factory.valid_df, split="valid")
+    metrics = metric_fn((avg_val_probs, val_gts))
+    print(f"Final ensemble metrics: {metrics}")
 
     prediction_indices = []
-    nb_test_files = len(prediction_files)
-    for i in range(nb_test_files):
-        prediction = np.stack([x[i] for x in predictions_probs], axis=0).mean(0)
-        prediction = np.argsort(prediction)
+    avg_prediction_probs = []
+    for i in range(len(prediction_files)):
+        pred_probs = np.stack([x[i] for x in all_predictions_probs], axis=0).mean(0)
+        prediction = np.argsort(pred_probs)
         prediction_indices.append(";".join([str(int(e)) for e in prediction]))
+        avg_prediction_probs.append(pred_probs)
 
     # dump to csv files
     submission_df = pd.DataFrame.from_dict(
@@ -135,6 +150,31 @@ def main():
             ),
             index=False,
         )
+
+    # also save extra stuff
+    pd.DataFrame.from_dict(
+        {
+            "ID": prediction_files,
+            "probs": avg_prediction_probs,
+        }
+    ).to_csv(
+        os.path.join(
+            "outputs_probs",
+            f"{data_args.data_type}:{data_args.source}:{data_args.search}:pred_probs.csv",
+        ),
+    )
+    pd.DataFrame.from_dict(
+        {
+            "ID": val_files,
+            "probs": avg_val_probs,
+            "gts": val_gts,
+        }
+    ).to_csv(
+        os.path.join(
+            "outputs_probs",
+            f"{data_args.data_type}:{data_args.source}:{data_args.search}:val_probs.csv",
+        ),
+    )
 
 
 def train_on_fold(
@@ -181,6 +221,8 @@ def train_on_fold(
     if last_checkpoint is not None:
         logger.info(f"Loading {last_checkpoint} ...")
         checkpoint = torch.load(last_checkpoint, "cpu")
+        # checkpoint = safe_open(last_checkpoint, "pt")
+        # checkpoint = {k: checkpoint.get_tensor(k) for k in checkpoint.keys()}
         if "state_dict" in checkpoint:
             checkpoint = checkpoint.pop("state_dict")
         model.load_state_dict(checkpoint)
@@ -210,49 +252,24 @@ def train_on_fold(
         trainer.save_state()
 
     # Evaluation
-    # if training_args.do_eval:
-    #     logger.info("*** Evaluate ***")
-    #     metrics = trainer.evaluate()
-    #     trainer.log_metrics("eval", metrics)
-    #     trainer.save_metrics("eval", metrics)
+    if training_args.do_eval:
+        logger.info("*** Evaluate ***")
+        val_files, val_probs, _ = predict(data_args, "valid", trainer, dataset_factory, tta=TTA)
+        metric_fn = LayoutComputeMetricsFn(dataset_factory.valid_df, split="valid")
+        val_gts = [
+            metric_fn.df.set_index("file").loc[file.split(":")[-1] + ".npz", "config_runtime"]
+            for file in val_files
+        ]
+        metrics = metric_fn((val_probs, val_gts))
+        trainer.log_metrics("eval", metrics)
+        trainer.save_metrics("eval", metrics)
 
     # Inference
     logger.info("*** Predict ***")
-    if data_args.data_type == "layout":
-        trainer.compute_metrics = LayoutComputeMetricsFn(test_dataset.df, split="test")
-    else:
-        trainer.compute_metrics = TileComputeMetricsFn(test_dataset.df, split="test")
-
-    predictions = trainer.predict(test_dataset).predictions
-
-    new_predictions = []
-    for e in predictions:
-        # only get top 5
-        # new_predictions.append(np.array([x for x in e if x != -100]))
-        new_predictions.append(np.array([x for x in e]))
-
-    predictions = new_predictions
-
-    prediction_files = []
-    predictions_probs = []
-    prediction_indices = []
-    if data_args.data_type == "tile":
-        predictions = [pred[:5] for pred in predictions]
-
-        for file_id, prediction in zip(test_dataset.df["file"], predictions):
-            prediction_files.append("tile:xla:" + file_id[:-4])
-            prediction_indices.append(";".join([str(int(e)) for e in prediction]))
-    else:
-        for file_id, rows in test_dataset.df.groupby("file"):
-            idx = rows.index.tolist()
-            prediction = np.concatenate([predictions[i] for i in idx])
-            predictions_probs.append(prediction)
-            prediction = np.argsort(prediction)
-            prediction_files.append(
-                f"{data_args.data_type}:{data_args.source}:{data_args.search}:" + file_id[:-4]
-            )
-            prediction_indices.append(";".join([str(int(e)) for e in prediction]))
-    return prediction_files, predictions_probs
+    prediction_files, predictions_probs, _ = predict(
+        data_args, "test", trainer, dataset_factory, tta=TTA
+    )
+    return (prediction_files, predictions_probs), (val_files, val_probs, val_gts)
 
 
 if __name__ == "__main__":
