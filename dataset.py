@@ -376,8 +376,11 @@ class DatasetFactory:
             self.all_data["fold"] = self.all_data["file"].apply(get_fold)
 
         # for architecture finetuning
-        self.val_mapping, self.test_mapping, self.test_to_val_mapping = find_layout_train_files_have_same_architecture(
-            data_folder, source, search
+        # self.val_mapping, self.test_mapping, self.test_to_val_mapping = find_layout_train_files_have_same_architecture(
+        #     data_folder, source, search, kfold=kfold
+        # )
+        self.test_mapping = find_layout_train_files_have_same_architecture(
+            data_folder, source, search, kfold=kfold
         )
 
     def get_datasets(
@@ -387,19 +390,19 @@ class DatasetFactory:
         architecture_finetune=False,
         architecture_finetune_test_file_names="",
     ):
-        if all_architecture_finetune_test_file_names:
-            all_architecture_finetune_test_file_names = architecture_finetune_test_file_names.split(",")
+        filtered_train_files = []
+        filtered_valid_files = []
+        all_architecture_finetune_test_file_names = architecture_finetune_test_file_names.split(",") if architecture_finetune_test_file_names else []
 
-            filtered_train_files = []
+        if architecture_finetune_test_file_names:
             for file_name in all_architecture_finetune_test_file_names:
                 filtered_train_files.extend(self.test_mapping[file_name])
 
-            filtered_valid_files = []
             for file_name in all_architecture_finetune_test_file_names:
-                filtered_valid_files.extend(self.test_to_val_mapping[file_name])
+                filtered_valid_files.extend(self.test_mapping[file_name])
 
             if architecture_finetune and (len(filtered_train_files) == 0 or len(filtered_valid_files) == 0):
-                return None
+                return None, None, None
 
         if fold is None:
             train_dataset = self.dataset_cls(
@@ -465,7 +468,6 @@ class DatasetFactory:
             valid_dataset.tgt_scaler = self._tgt_scaler_obj
             # valid_dataset.scaler = train_dataset.scaler
             # valid_dataset.tgt_scaler = train_dataset.tgt_scaler
-
             test_dataset = self.dataset_cls(
                 self.test_df if len(all_architecture_finetune_test_file_names) == 0 else self.test_df[
                     self.test_df["file"].isin(all_architecture_finetune_test_file_names)
