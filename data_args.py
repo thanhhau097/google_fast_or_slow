@@ -39,7 +39,7 @@ class DataArguments:
         default=False, metadata={"help": "Whether to use standard scaler"}
     )
     fold: int = field(
-        default=0, metadata={"help": "Which fold to use. 0-8 for kfold, -1 for all folds"}
+        default=-1, metadata={"help": "Which fold to use. 0-8 for kfold, -1 for all folds"}
     )
 
     # finetuning base on architecture
