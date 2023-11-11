@@ -307,6 +307,8 @@ def train_on_fold(
             )
 
             # finetune with new dataset
+            logger.info("*** Evaluate before Finetune ***")
+            new_trainer.evaluate()
             logger.info("*** Finetune ***")
             train_result = new_trainer.train()
             metrics = train_result.metrics
