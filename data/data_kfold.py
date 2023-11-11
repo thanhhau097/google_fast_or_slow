@@ -42,7 +42,7 @@ for collection in ["layout/xla", "layout/nlp"]:
                 idx = np.random.permutation(config_runtime.shape[0])
                 for i in range(NUM_FOLDS):
                     start = i * config_runtime.shape[0] // NUM_FOLDS
-                    end = (i + 1) * config_runtime.shape[0] // NUM_FOLDS
+                    end = (i + 1) * config_runtime.shape[0] // NUM_FOLDS if i != NUM_FOLDS - 1 else None
                     new_data["config_runtime"] = config_runtime[idx[start:end]]
                     new_data["node_config_feat"] = node_config_feat[idx[start:end]]
 
