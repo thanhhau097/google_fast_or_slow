@@ -22,3 +22,6 @@ class ModelArguments:
     layout_embedding_dim: int = field(default=4, metadata={"help": "num of layout embedding dim"})
     norm: str = field(default="instance", metadata={"help": "instance norm or group norm"})
     use_cross_attn: bool = field(default=False, metadata={"help": "use cross attn or not"})
+    weights_folder: str = field(
+        default="weights", metadata={"help": "folder to load weights for prediction"}
+    )
