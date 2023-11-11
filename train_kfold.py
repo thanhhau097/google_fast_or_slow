@@ -20,7 +20,7 @@ from model_args import ModelArguments
 torch.set_float32_matmul_precision("high")
 logger = logging.getLogger(__name__)
 
-NB_FOLDS = 5
+NB_FOLDS = 7
 
 
 def main():
@@ -210,11 +210,11 @@ def train_on_fold(
         trainer.save_state()
 
     # Evaluation
-    if training_args.do_eval:
-        logger.info("*** Evaluate ***")
-        metrics = trainer.evaluate()
-        trainer.log_metrics("eval", metrics)
-        trainer.save_metrics("eval", metrics)
+    # if training_args.do_eval:
+    #     logger.info("*** Evaluate ***")
+    #     metrics = trainer.evaluate()
+    #     trainer.log_metrics("eval", metrics)
+    #     trainer.save_metrics("eval", metrics)
 
     # Inference
     logger.info("*** Predict ***")
@@ -228,7 +228,8 @@ def train_on_fold(
     new_predictions = []
     for e in predictions:
         # only get top 5
-        new_predictions.append(np.array([x for x in e if x != -100]))
+        # new_predictions.append(np.array([x for x in e if x != -100]))
+        new_predictions.append(np.array([x for x in e]))
 
     predictions = new_predictions
 

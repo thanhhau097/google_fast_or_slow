@@ -60,7 +60,15 @@ def load_df(directory, split):
         if len(d["config_runtime"]) <= 1:
             print(f"skipping {file} as it only contains {len(d['config_runtime'])} configs")
             continue
+        # if split == "valid":
+        #     idx = np.arange(len(d["config_runtime"])).astype(np.int64)
+        #     np.random.seed(101)
+        #     np.random.shuffle(idx)
+        #     d["config_runtime"] = d["config_runtime"][idx][:1000]
+        #     d["node_config_feat"] = d["node_config_feat"][idx][:1000]
         list_df.append(d)
+        # if split == "valid":
+        #     break
     return pd.DataFrame.from_dict(list_df)
 
 
@@ -315,8 +323,8 @@ class DatasetFactory:
             split="valid",
             search=search,
             use_compressed=use_compressed,
-            data_concatenation=data_concatenation,
-            filter_random_configs=filter_random_configs,
+            data_concatenation=False,
+            filter_random_configs=False,
         )
         self.test_df = self._load_data(
             data_folder,
@@ -325,8 +333,8 @@ class DatasetFactory:
             split="test",
             search=search,
             use_compressed=use_compressed,
-            data_concatenation=data_concatenation,
-            filter_random_configs=filter_random_configs,
+            data_concatenation=False,
+            filter_random_configs=False,
         )
 
         self.dataset_cls = LayoutDataset if data_type == "layout" else TileDataset
@@ -361,6 +369,69 @@ class DatasetFactory:
             self.all_data[["file", "fold"]].to_csv(
                 f"{source}:{search}_fold_splits.csv", index=False
             )
+
+    def get_dataset_for_inference(self, split):
+        train_dataset = self.dataset_cls(
+            self.train_df,
+            split="train",
+            max_configs=self.max_configs,
+            scaler=self.scaler,
+            tgt_scaler=self.tgt_scaler,
+            select_close_runtimes=self.select_close_runtimes,
+            select_close_runtimes_prob=self.select_close_runtimes_prob,
+        )
+        if split == "test":
+            df = self.test_df
+        else:
+            df = self.valid_df
+
+        dataset = self.dataset_cls(
+            df,
+            split=split,
+            max_configs=self.max_configs_eval,
+        )
+        dataset.scaler = train_dataset.scaler
+        dataset.tgt_scaler = train_dataset.tgt_scaler
+        return dataset
+
+    def get_tta_dataset(self, split, nb_permutations=10, seed=101):
+        np.random.seed(seed)
+        train_dataset = self.dataset_cls(
+            self.train_df,
+            split="train",
+            max_configs=self.max_configs,
+            scaler=self.scaler,
+            tgt_scaler=self.tgt_scaler,
+            select_close_runtimes=self.select_close_runtimes,
+            select_close_runtimes_prob=self.select_close_runtimes_prob,
+        )
+
+        for k in range(nb_permutations):
+            # Prepare new df with permuted configs
+            if split == "test":
+                df = self.test_df.copy().reset_index(drop=True)
+            else:
+                df = self.valid_df.copy().reset_index(drop=True)
+
+            permutations = {}
+            for i in range(len(df)):
+                nb_configs = len(df.loc[i, "config_runtime"])
+                random_indices = list(range(nb_configs))
+                np.random.shuffle(random_indices)
+
+                # shuffle runtime and config feats
+                df.loc[i, "config_runtime"] = df.loc[i, "config_runtime"][random_indices]
+                df.loc[i, "node_config_feat"] = df.loc[i, "node_config_feat"][random_indices]
+                permutations[df.loc[i, "file"]] = random_indices
+
+            dataset = self.dataset_cls(
+                df,
+                split=split,
+                max_configs=self.max_configs_eval,
+            )
+            dataset.scaler = train_dataset.scaler
+            dataset.tgt_scaler = train_dataset.tgt_scaler
+            yield dataset, permutations
 
     def get_datasets(self, fold=None, output_dir=None):
         if fold is None:

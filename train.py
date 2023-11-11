@@ -15,9 +15,81 @@ from dataset import LayoutDataset, TileDataset, layout_collate_fn, tile_collate_
 from engine import CustomTrainer, LayoutComputeMetricsFn, TileComputeMetricsFn
 from model import LayoutModel, TileModel, LayoutModel
 from model_args import ModelArguments
+from tqdm.auto import tqdm
 
 torch.set_float32_matmul_precision("high")
 logger = logging.getLogger(__name__)
+
+TTA = None
+
+
+def _predict_single(data_args, trainer, test_dataset, padding_value: int = -9999):
+    if data_args.data_type == "layout":
+        trainer.compute_metrics = LayoutComputeMetricsFn(test_dataset.df, split="test")
+    else:
+        trainer.compute_metrics = TileComputeMetricsFn(test_dataset.df, split="test")
+
+    predictions = trainer.predict(test_dataset).predictions
+
+    new_predictions = []
+    for e in predictions:
+        # only get top 5
+        new_predictions.append(np.array([x for x in e if x != padding_value]))
+
+    predictions = new_predictions
+
+    prediction_files = []
+    predictions_probs = []
+
+    if data_args.data_type == "tile":
+        predictions = [pred[:5] for pred in predictions]
+
+        for file_id, prediction in zip(test_dataset.df["file"], predictions):
+            prediction_files.append("tile:xla:" + file_id[:-4])
+            predictions_probs.append(prediction)
+    else:
+        for file_id, rows in test_dataset.df.groupby("file"):
+            idx = rows.index.tolist()
+            prediction = np.concatenate([predictions[i] for i in idx])
+            predictions_probs.append(prediction)
+            prediction_files.append(
+                f"{data_args.data_type}:{data_args.source.replace('_pruned', '')}:{data_args.search}:"
+                + file_id[:-4]
+            )
+    return prediction_files, predictions_probs
+
+
+def predict(data_args, split, trainer, dataset_factory, tta=None):
+    if tta is None:
+        test_dataset = dataset_factory.get_dataset_for_inference(split)
+        prediction_files, predictions_probs = _predict_single(data_args, trainer, test_dataset)
+        prediction_indices = []
+        for pred_prob in predictions_probs:
+            prediction = np.argsort(pred_prob)
+            prediction_indices.append(";".join([str(int(e)) for e in prediction]))
+        return prediction_files, predictions_probs, prediction_indices
+
+    all_probs = []
+    for test_dataset, permutations in tqdm(
+        dataset_factory.get_tta_dataset(split, nb_permutations=tta, seed=101), total=tta
+    ):
+        prediction_files, predictions_probs = _predict_single(data_args, trainer, test_dataset)
+        # unshuffle predictions using the indexes
+        new_predictions_probs = []
+        for pred_file, pred_prob in zip(prediction_files, predictions_probs):
+            idx = permutations[pred_file.split(":")[-1] + ".npz"]
+            new_predictions_probs.append(pred_prob[np.argsort(idx)])
+        all_probs.append(new_predictions_probs)
+    # average predictions
+    final_probs = []
+    for i in range(len(prediction_files)):
+        final_probs.append(np.stack([e[i] for e in all_probs], axis=0).mean(0))
+
+    prediction_indices = []
+    for pred_prob in final_probs:
+        prediction = np.argsort(pred_prob)
+        prediction_indices.append(";".join([str(int(e)) for e in prediction]))
+    return prediction_files, final_probs, prediction_indices
 
 
 def main():
@@ -149,44 +221,24 @@ def main():
     # Evaluation
     if training_args.do_eval:
         logger.info("*** Evaluate ***")
-        metrics = trainer.evaluate()
+        prediction_files, predictions_probs, _ = predict(
+            data_args, "valid", trainer, dataset_factory, tta=TTA
+        )
+        metric_fn = LayoutComputeMetricsFn(dataset_factory.valid_df, split="valid")
+        gts = [
+            metric_fn.df.set_index("file").loc[file.split(":")[-1] + ".npz", "config_runtime"]
+            for file in prediction_files
+        ]
+        metrics = metric_fn((predictions_probs, gts))
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
 
     # Inference
     if training_args.do_predict:
         logger.info("*** Predict ***")
-        if data_args.data_type == "layout":
-            trainer.compute_metrics = LayoutComputeMetricsFn(test_dataset.df, split="test")
-        else:
-            trainer.compute_metrics = TileComputeMetricsFn(test_dataset.df, split="test")
-
-        predictions = trainer.predict(test_dataset).predictions
-
-        new_predictions = []
-        for e in predictions:
-            # only get top 5
-            new_predictions.append(np.array([x for x in e if x != -100]))
-
-        predictions = new_predictions
-
-        prediction_files = []
-        prediction_indices = []
-        if data_args.data_type == "tile":
-            predictions = [pred[:5] for pred in predictions]
-
-            for file_id, prediction in zip(test_dataset.df["file"], predictions):
-                prediction_files.append("tile:xla:" + file_id[:-4])
-                prediction_indices.append(";".join([str(int(e)) for e in prediction]))
-        else:
-            for file_id, rows in test_dataset.df.groupby("file"):
-                idx = rows.index.tolist()
-                prediction = np.concatenate([predictions[i] for i in idx])
-                prediction = np.argsort(prediction)
-                prediction_files.append(
-                    f"{data_args.data_type}:{data_args.source}:{data_args.search}:" + file_id[:-4]
-                )
-                prediction_indices.append(";".join([str(int(e)) for e in prediction]))
+        prediction_files, predictions_probs, prediction_indices = predict(
+            data_args, "test", trainer, dataset_factory, tta=TTA
+        )
 
         # dump to csv files
         submission_df = pd.DataFrame.from_dict(
