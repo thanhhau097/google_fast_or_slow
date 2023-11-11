@@ -286,7 +286,7 @@ def train_on_fold(
             new_training_args.num_train_epochs = data_args.architecture_finetune_epochs
             new_training_args.eval_steps = data_args.architecture_finetune_eval_steps
             new_training_args.save_steps = data_args.architecture_finetune_eval_steps
-            new_training_args.output_dir = os.path.join(training_args.output_dir, f"fold_{fold}", filename)
+            new_training_args.output_dir = os.path.join(training_args.output_dir, "finetuning", filename)
             new_training_args.do_train = True
             new_training_args.do_eval = True
             new_training_args.do_predict = True
