@@ -19,9 +19,7 @@ class DataArguments:
     data_concatenation: bool = field(
         default=False, metadata={"help": "Whether to concatenate data from different searches"}
     )
-    use_compressed: bool = field(
-        default=True, metadata={"help": "Whether to use compressed data"}
-    )
+    use_compressed: bool = field(default=True, metadata={"help": "Whether to use compressed data"})
     max_configs: int = field(default=128, metadata={"help": "max number of configs per graph"})
     max_configs_eval: int = field(
         default=512, metadata={"help": "max number of configs per graph for validation"}
@@ -33,5 +31,12 @@ class DataArguments:
         default=0.5, metadata={"help": "Probability of selecting close runtimes"}
     )
     filter_random_configs: bool = field(
-        default=False, metadata={"help": "Whether to filter random configs when training with mix data"}
+        default=False,
+        metadata={"help": "Whether to filter random configs when training with mix data"},
+    )
+    add_pseudo: str = field(
+        default=None,
+        metadata={
+            "help": "Whether to add pseudo data. If yes, specify the name of the pseudo folder"
+        },
     )

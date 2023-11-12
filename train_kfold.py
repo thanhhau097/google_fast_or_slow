@@ -83,6 +83,7 @@ def main():
         select_close_runtimes=data_args.select_close_runtimes,
         select_close_runtimes_prob=data_args.select_close_runtimes_prob,
         filter_random_configs=data_args.filter_random_configs,
+        add_pseudo=data_args.add_pseudo,
         # kfold=NB_FOLDS,
     )
 
@@ -94,8 +95,8 @@ def main():
                 Path(model_args.weights_folder)
                 / f"fold_{fold}"
                 / "checkpoint"
-                # / "pytorch_model.bin"
-                / "model.safetensors"
+                / "pytorch_model.bin"
+                # / "model.safetensors"
             )
             if not ckpt_path.exists():
                 print(f"Checkpoint {ckpt_path} not found. Skipping fold {fold}")
@@ -152,24 +153,29 @@ def main():
         )
 
     # also save extra stuff
-    pd.DataFrame.from_dict(
+    pred_df = pd.DataFrame.from_dict(
         {
             "ID": prediction_files,
             "probs": avg_prediction_probs,
         }
-    ).to_csv(
+    )
+    pred_df["probs"] = pred_df["probs"].apply(lambda x: ";".join([str(e) for e in x]))
+    pred_df.to_csv(
         os.path.join(
             "outputs_probs",
             f"{data_args.data_type}:{data_args.source}:{data_args.search}:pred_probs.csv",
         ),
     )
-    pd.DataFrame.from_dict(
+    val_df = pd.DataFrame.from_dict(
         {
             "ID": val_files,
             "probs": avg_val_probs,
             "gts": val_gts,
         }
-    ).to_csv(
+    )
+    val_df["probs"] = val_df["probs"].apply(lambda x: ";".join([str(e) for e in x]))
+    val_df["gts"] = val_df["gts"].apply(lambda x: ";".join([str(e) for e in x]))
+    val_df.to_csv(
         os.path.join(
             "outputs_probs",
             f"{data_args.data_type}:{data_args.source}:{data_args.search}:val_probs.csv",

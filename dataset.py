@@ -297,6 +297,7 @@ class DatasetFactory:
         filter_random_configs=False,
         kfold=None,
         seed=123,
+        add_pseudo=None,
         **kwargs,
     ):
         self.max_configs = max_configs
@@ -315,6 +316,7 @@ class DatasetFactory:
             use_compressed=use_compressed,
             data_concatenation=data_concatenation,
             filter_random_configs=filter_random_configs,
+            add_pseudo=add_pseudo,
         )
         self.valid_df = self._load_data(
             data_folder,
@@ -325,6 +327,7 @@ class DatasetFactory:
             use_compressed=use_compressed,
             data_concatenation=False,
             filter_random_configs=False,
+            add_pseudo=None,
         )
         self.test_df = self._load_data(
             data_folder,
@@ -335,6 +338,7 @@ class DatasetFactory:
             use_compressed=use_compressed,
             data_concatenation=False,
             filter_random_configs=False,
+            add_pseudo=None,
         )
 
         self.dataset_cls = LayoutDataset if data_type == "layout" else TileDataset
@@ -516,6 +520,7 @@ class DatasetFactory:
         use_compressed,
         data_concatenation,
         filter_random_configs,
+        add_pseudo=None,
     ):
         if search == "mix":
             # in mix mode, we load all the data both from default and random
@@ -638,4 +643,18 @@ class DatasetFactory:
                 )
 
             df["search"] = search
+
+        if add_pseudo is not None:
+            print(f"Adding pseudo from {add_pseudo}")
+            if not use_compressed:
+                pseudo_df = load_df(
+                    os.path.join(data_folder, data_type, source, search), add_pseudo
+                )
+            else:
+                pseudo_df = load_df(
+                    os.path.join(data_folder, data_type, source + "_compressed", search),
+                    add_pseudo,
+                )
+            pseudo_df["search"] = add_pseudo
+            df = pd.concat([df, pseudo_df]).reset_index(drop=True)
         return df

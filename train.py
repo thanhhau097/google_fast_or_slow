@@ -149,6 +149,7 @@ def main():
         select_close_runtimes=data_args.select_close_runtimes,
         select_close_runtimes_prob=data_args.select_close_runtimes_prob,
         filter_random_configs=data_args.filter_random_configs,
+        add_pseudo=data_args.add_pseudo,
     )
     train_dataset, val_dataset, test_dataset = dataset_factory.get_datasets()
 
