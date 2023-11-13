@@ -17,6 +17,7 @@
 # Guidelines
 ```
 git clone git@github.com:thanhhau097/google_fast_or_slow.git
+git checkout kfold_finetune
 cd google_fast_or_slow/data
 
 kaggle competitions download -c predict-ai-model-runtime
