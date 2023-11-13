@@ -15,7 +15,6 @@ from torch.utils.data import DataLoader
 # https://pytorchltr.readthedocs.io/en/stable/loss.html
 def pairwise_hinge_loss(y_pred, y_true):
     loss_fn = PairwiseHingeLoss()
-    # loss_fn = PairwiseLogisticLoss(0.1)
 
     y_pred = y_pred.unsqueeze(0)
     y_true = y_true.unsqueeze(0)
@@ -99,29 +98,28 @@ class CustomTrainer(Trainer):
         if prediction_loss_only:
             return (loss, None, None)
 
-        if self.data_type == "tile":
-            del inputs["config_feat"]
-        else:
-            del inputs["node_config_feat"]
-            del inputs["node_layout_feat"]
+        # if self.data_type == "tile":
+        #     del inputs["config_feat"]
+        # else:
+        #     del inputs["node_config_feat"]
+        #     del inputs["node_layout_feat"]
 
-        del inputs["node_feat"]
-        del inputs["node_opcode"]
-        del inputs["edge_index"]
+        # del inputs["node_feat"]
+        # del inputs["node_opcode"]
+        # del inputs["edge_index"]
 
-        gc.collect()
+        # gc.collect()
 
         if self.data_type == "tile":
             # TODO: why 50 here?
             predictions = np.argsort(outputs.cpu().detach().numpy())[:50]
             return loss, torch.tensor([predictions]), inputs["target"]
         else:
-            predictions = outputs.cpu().detach().numpy()
-            target = inputs["target"].cpu().detach().unsqueeze(0)
-
+            predictions = outputs.unsqueeze(0).detach().cpu()
+            target = inputs["target"].unsqueeze(0).detach().cpu()
             return (
                 loss,
-                torch.tensor([predictions]),
+                predictions,
                 target,
             )
 
