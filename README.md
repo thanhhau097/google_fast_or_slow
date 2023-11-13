@@ -15,6 +15,19 @@
 - Graph Segment Training: https://github.com/kaidic/GST
 
 # Guidelines
+```
+git clone git@github.com:thanhhau097/google_fast_or_slow.git
+cd google_fast_or_slow/data
+
+kaggle competitions download -c predict-ai-model-runtime
+unzip predict-ai-model-runtime.zip
+
+python data_compression.py
+python data_kfold.py
+cd ../
+
+./run_everything.sh
+```
 1. Preprocess data
 ```
 cd data/
