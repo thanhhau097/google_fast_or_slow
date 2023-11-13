@@ -273,6 +273,9 @@ def train_on_fold(
         best_model_path = os.path.join(training_args.output_dir, "pytorch_model.bin")
         # trainer.save_model(os.path.join(training_args.output_dir, str(fold)))
         for filename in dataset_factory.test_mapping.keys():
+            if os.path.exists(os.path.join(training_args.output_dir, "finetuning", filename, "predictions.npy")):
+                print(f"Skipping {filename} as it already exists")
+                continue
             # create new datasets
             train_dataset, val_dataset, test_dataset = dataset_factory.get_datasets(
                 fold, output_dir=training_args.output_dir,
