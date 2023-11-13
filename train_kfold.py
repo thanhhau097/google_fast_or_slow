@@ -209,23 +209,7 @@ def train_on_fold(
         trainer.save_metrics("train", metrics)
         trainer.save_state()
 
-    # Evaluation
-    if training_args.do_eval:
-        logger.info("*** Evaluate ***")
-        metrics = trainer.evaluate()
-        trainer.log_metrics("eval", metrics)
-        trainer.save_metrics("eval", metrics)
-
-    # Inference
-    logger.info("*** Predict ***")
-    if data_args.data_type == "layout":
-        trainer.compute_metrics = LayoutComputeMetricsFn(test_dataset.df, split="test")
-    else:
-        trainer.compute_metrics = TileComputeMetricsFn(test_dataset.df, split="test")
-
-    predictions = trainer.predict(test_dataset).predictions
-
-    def get_prediction_results(predictions, test_dataset):
+    def get_prediction_results(predictions, dataset):
         new_predictions = []
         for e in predictions:
             # only get top 5
@@ -239,11 +223,11 @@ def train_on_fold(
         if data_args.data_type == "tile":
             predictions = [pred[:5] for pred in predictions]
 
-            for file_id, prediction in zip(test_dataset.df["file"], predictions):
+            for file_id, prediction in zip(dataset.df["file"], predictions):
                 prediction_files.append("tile:xla:" + file_id[:-4])
                 prediction_indices.append(";".join([str(int(e)) for e in prediction]))
         else:
-            for file_id, rows in test_dataset.df.groupby("file"):
+            for file_id, rows in dataset.df.groupby("file"):
                 idx = rows.index.tolist()
                 prediction = np.concatenate([predictions[i] for i in idx])
                 predictions_probs.append(prediction)
@@ -254,6 +238,35 @@ def train_on_fold(
                 prediction_indices.append(";".join([str(int(e)) for e in prediction]))
         
         return prediction_files, predictions_probs
+
+    # Evaluation
+    if training_args.do_eval:
+        logger.info("*** Evaluate ***")
+        metrics = trainer.evaluate()
+        trainer.log_metrics("eval", metrics)
+        trainer.save_metrics("eval", metrics)
+
+        val_predictions = trainer.predict(val_dataset).predictions
+        prediction_files, predictions_probs = get_prediction_results(val_predictions, val_dataset)
+        # save to numpy file
+        save_dict = {
+            "prediction_files": prediction_files,
+            "predictions_probs": predictions_probs,
+        }
+        np.save(
+            os.path.join(training_args.output_dir, "val_predictions.npy"),
+            save_dict,
+            allow_pickle=True,
+        )
+
+    # Inference
+    logger.info("*** Predict ***")
+    if data_args.data_type == "layout":
+        trainer.compute_metrics = LayoutComputeMetricsFn(test_dataset.df, split="test")
+    else:
+        trainer.compute_metrics = TileComputeMetricsFn(test_dataset.df, split="test")
+
+    predictions = trainer.predict(test_dataset).predictions
 
     prediction_files, predictions_probs = get_prediction_results(predictions, test_dataset)
     # save to numpy file
@@ -324,6 +337,18 @@ def train_on_fold(
             metrics = new_trainer.evaluate()
             new_trainer.log_metrics("eval", metrics)
             new_trainer.save_metrics("eval", metrics)
+            val_predictions = new_trainer.predict(val_dataset).predictions
+            prediction_files, predictions_probs = get_prediction_results(val_predictions, val_dataset)
+            # save to numpy file
+            save_dict = {
+                "prediction_files": prediction_files,
+                "predictions_probs": predictions_probs,
+            }
+            np.save(
+                os.path.join(new_training_args.output_dir, "val_predictions.npy"),
+                save_dict,
+                allow_pickle=True,
+            )
 
             # export prediction probs then save to folder
             logger.info("*** Predict ***")
