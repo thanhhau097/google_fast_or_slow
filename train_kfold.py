@@ -95,8 +95,8 @@ def main():
                 Path(model_args.weights_folder)
                 / f"fold_{fold}"
                 / "checkpoint"
-                / "pytorch_model.bin"
-                # / "model.safetensors"
+                # / "pytorch_model.bin"
+                / "model.safetensors"
             )
             if not ckpt_path.exists():
                 print(f"Checkpoint {ckpt_path} not found. Skipping fold {fold}")
@@ -226,9 +226,9 @@ def train_on_fold(
 
     if last_checkpoint is not None:
         logger.info(f"Loading {last_checkpoint} ...")
-        checkpoint = torch.load(last_checkpoint, "cpu")
-        # checkpoint = safe_open(last_checkpoint, "pt")
-        # checkpoint = {k: checkpoint.get_tensor(k) for k in checkpoint.keys()}
+        # checkpoint = torch.load(last_checkpoint, "cpu")
+        checkpoint = safe_open(last_checkpoint, "pt")
+        checkpoint = {k: checkpoint.get_tensor(k) for k in checkpoint.keys()}
         if "state_dict" in checkpoint:
             checkpoint = checkpoint.pop("state_dict")
         model.load_state_dict(checkpoint)

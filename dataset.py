@@ -129,11 +129,14 @@ class LayoutDataset(Dataset):
         self.df = df
         self.scaler = scaler
         self.tgt_scaler = tgt_scaler
+        fit_mask = self.df["search"].apply(lambda x: "pseudo" not in x)
         if self.scaler is not None:
-            self.scaler = self.scaler.fit(np.concatenate(self.df["node_feat"].tolist())[:, :134])
+            self.scaler = self.scaler.fit(
+                np.concatenate(self.df[fit_mask]["node_feat"].tolist())[:, :134]
+            )
         if self.tgt_scaler is not None:
             self.tgt_scaler = self.tgt_scaler.fit(
-                np.concatenate(self.df["config_runtime"].tolist())[:, None]
+                np.concatenate(self.df[fit_mask]["config_runtime"].tolist())[:, None]
             )
         self.max_configs = max_configs
         self.split = split
@@ -198,7 +201,24 @@ class LayoutDataset(Dataset):
         elif sparse_node_config_feat.shape[0] <= self.max_configs:
             random_indices = list(range(sparse_node_config_feat.shape[0]))
         else:
-            if self.select_close_runtimes:
+            if "pseudo" in row["search"]:
+                sorted_tgt = np.sort(target)
+                delta = 40 * np.median(np.diff(sorted_tgt))
+
+                start = np.random.choice(len(target))
+                sampled_indices = np.ones(self.max_configs, dtype=np.int32) * -1000
+                sampled_indices[0] = start
+                for i in range(1, self.max_configs):
+                    valid_indices = np.where(
+                        (np.abs(target[:, None] - target[sampled_indices[:i]]) > delta).all(1)
+                    )[0]
+                    if len(valid_indices) == 0:
+                        break
+                    sampled_indices[i] = np.random.choice(valid_indices)
+                random_indices = sampled_indices[sampled_indices != -1000]
+                # print(len(random_indices), delta, np.diff(np.sort(target[random_indices])).min())
+
+            elif self.select_close_runtimes:
                 if np.random.rand() > self.select_close_runtimes_prob:
                     random_indices = random.sample(
                         range(sparse_node_config_feat.shape[0]), self.max_configs
@@ -233,7 +253,8 @@ class LayoutDataset(Dataset):
 
         # normalisation
         node_feat = self.scaler.transform(node_feat)
-        target = self.tgt_scaler.transform(target[:, None]).squeeze(1)
+        if "pseudo" not in row["search"]:
+            target = self.tgt_scaler.transform(target[:, None]).squeeze(1)
 
         node_feat = torch.tensor(node_feat)
         node_layout_feat = torch.tensor(node_layout_feat, dtype=torch.long)
@@ -645,16 +666,19 @@ class DatasetFactory:
             df["search"] = search
 
         if add_pseudo is not None:
-            print(f"Adding pseudo from {add_pseudo}")
-            if not use_compressed:
-                pseudo_df = load_df(
-                    os.path.join(data_folder, data_type, source, search), add_pseudo
-                )
-            else:
-                pseudo_df = load_df(
-                    os.path.join(data_folder, data_type, source + "_compressed", search),
-                    add_pseudo,
-                )
-            pseudo_df["search"] = add_pseudo
-            df = pd.concat([df, pseudo_df]).reset_index(drop=True)
+            pseudo_folders = add_pseudo.split(",")
+            for pseudo_folder in pseudo_folders:
+                print(f"Adding pseudo from {add_pseudo}")
+                if not use_compressed:
+                    pseudo_df = load_df(
+                        os.path.join(data_folder, data_type, source, search), pseudo_folder
+                    )
+                else:
+                    pseudo_df = load_df(
+                        os.path.join(data_folder, data_type, source + "_compressed", search),
+                        pseudo_folder,
+                    )
+                pseudo_df["search"] = pseudo_folder
+                df = pd.concat([df, pseudo_df]).reset_index(drop=True)
+                print(len(df))
         return df
