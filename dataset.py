@@ -325,7 +325,7 @@ class DatasetFactory:
             data_concatenation=data_concatenation,
             filter_random_configs=filter_random_configs,
         )
-        # self.train_df = pd.concat([self.train_df, self.valid_df])
+        self.train_df = pd.concat([self.train_df, self.valid_df])
         self.test_df = self._load_data(
             data_folder,
             data_type,
