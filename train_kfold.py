@@ -79,7 +79,7 @@ def main():
         select_close_runtimes=data_args.select_close_runtimes,
         select_close_runtimes_prob=data_args.select_close_runtimes_prob,
         filter_random_configs=data_args.filter_random_configs,
-        kfold=True,
+        kfold=False,
     )
 
     NB_FOLDS = 9
@@ -141,8 +141,8 @@ def train_on_fold(
     output_dir, data_args, model_args, training_args, dataset_factory, fold, last_checkpoint
 ):
     print(f"Starting fold {fold}")
-    set_seed(training_args.seed + fold)
-    training_args.output_dir = Path(output_dir) / f"fold_{fold}"
+    set_seed(training_args.seed)
+    training_args.output_dir = Path(output_dir) / f"fold_{str(fold)}"
     training_args.output_dir.mkdir(exist_ok=True, parents=True)
     training_args.output_dir = str(training_args.output_dir)
 
