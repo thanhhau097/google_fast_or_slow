@@ -103,7 +103,8 @@ class CustomTrainer(Trainer):
         if self.data_type == "tile":
             # TODO: why 50 here?
             # predictions = np.argsort(outputs.cpu().detach().numpy())[:50]
-            predictions = torch.sigmoid(outputs).cpu().detach().numpy()
+            # predictions = torch.sigmoid(outputs).cpu().detach().numpy()
+            predictions = (outputs / 100).cpu().detach().numpy()
             return loss, torch.tensor([predictions]), inputs["target"]
         else:
             predictions = outputs.cpu().detach().numpy()

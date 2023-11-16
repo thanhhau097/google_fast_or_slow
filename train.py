@@ -179,14 +179,16 @@ def main():
             data_folder=data_args.data_folder,
             split="test",
             max_configs=data_args.max_configs_eval,  # note that for model with GraphNorm this matters A LOT. Higher the better
+            use_compressed=data_args.use_compressed,
         )
 
-        if data_args.data_type == "layout":
-            test_dataset.scaler = train_dataset.scaler
-            test_dataset.tgt_scaler = train_dataset.tgt_scaler
+        test_dataset.scaler = train_dataset.scaler
+        test_dataset.tgt_scaler = train_dataset.tgt_scaler
 
+        if data_args.data_type == "layout":
             trainer.compute_metrics = LayoutComputeMetricsFn(test_dataset.df, split="test")
         else:
+            test_dataset.cfg_scaler = train_dataset.cfg_scaler
             trainer.compute_metrics = TileComputeMetricsFn(test_dataset.df, split="test")
 
         logits = trainer.predict(test_dataset).predictions
@@ -228,7 +230,7 @@ def main():
             {
                 "ID": prediction_files,
                 "TopConfigs": prediction_indices,
-                # "logits": logits_indices,
+                "logits": logits_indices,
                 # "runtime": runtime_indices,
             }
         )
