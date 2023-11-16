@@ -37,6 +37,7 @@ class CustomTrainer(Trainer):
             outputs = model(
                 inputs["config_feat"],
                 inputs["node_feat"],
+                inputs["node_layout_feat"],
                 inputs["node_opcode"],
                 inputs["edge_index"],
             )
@@ -100,20 +101,9 @@ class CustomTrainer(Trainer):
             return (loss, None, None)
 
         if self.data_type == "tile":
-            del inputs["config_feat"]
-        else:
-            del inputs["node_config_feat"]
-            del inputs["node_layout_feat"]
-
-        del inputs["node_feat"]
-        del inputs["node_opcode"]
-        del inputs["edge_index"]
-
-        gc.collect()
-
-        if self.data_type == "tile":
             # TODO: why 50 here?
-            predictions = np.argsort(outputs.cpu().detach().numpy())[:50]
+            # predictions = np.argsort(outputs.cpu().detach().numpy())[:50]
+            predictions = torch.sigmoid(outputs).cpu().detach().numpy()
             return loss, torch.tensor([predictions]), inputs["target"]
         else:
             predictions = outputs.cpu().detach().numpy()
@@ -129,7 +119,8 @@ class CustomTrainer(Trainer):
 def score_tile_mean(predictions, df):
     score = 0
     for i in range(len(df)):
-        predbest = np.mean(df.iloc[i]["config_runtime"][predictions[i]])
+        preds_idx = np.argsort(predictions[i])[:50]
+        predbest = np.mean(df.iloc[i]["config_runtime"][preds_idx])
         best = np.mean(np.sort(df.iloc[i]["config_runtime"])[:50])
         score += 2 - predbest / best
     score /= len(df)
@@ -139,7 +130,8 @@ def score_tile_mean(predictions, df):
 def score_tile_max(predictions, df):
     score = 0
     for i in range(len(df)):
-        predbest = np.min(df.iloc[i]["config_runtime"][predictions[i][:5]])
+        preds_idx = np.argsort(predictions[i])[:50]
+        predbest = np.min(df.iloc[i]["config_runtime"][preds_idx[:5]])
         best = np.min(df.iloc[i]["config_runtime"])
         # print(best,predbest)
         score += 2 - predbest / best

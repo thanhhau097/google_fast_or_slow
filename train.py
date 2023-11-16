@@ -76,6 +76,7 @@ def main():
         split="train",
         scaler=StandardScaler(),
         tgt_scaler=StandardScaler(),
+        cfg_scaler=StandardScaler(),
         use_compressed=data_args.use_compressed,
         max_configs=data_args.max_configs,
         data_concatenation=data_args.data_concatenation,
@@ -93,35 +94,32 @@ def main():
         max_configs=data_args.max_configs_eval,
         data_concatenation=data_args.data_concatenation,
     )
-    if data_args.data_type == "layout":
-        val_dataset.scaler = train_dataset.scaler
-        val_dataset.tgt_scaler = train_dataset.tgt_scaler
+    val_dataset.scaler = train_dataset.scaler
+    val_dataset.tgt_scaler = train_dataset.tgt_scaler
 
-    if data_args.data_type == "tile":
-        model = TileModel(
-            hidden_channels=[int(x) for x in model_args.hidden_channels.split(",")],
-            graph_in=model_args.graph_in,
-            graph_out=model_args.graph_out,
-            hidden_dim=model_args.hidden_dim,
-            dropout=model_args.dropout,
-        )
-        collate_fn = tile_collate_fn
-        compute_metrics = TileComputeMetricsFn(val_dataset.df)
-    else:
-        model = LayoutModel(
-            hidden_channels=[int(x) for x in model_args.hidden_channels.split(",")],
-            graph_in=model_args.graph_in,
-            graph_out=model_args.graph_out,
-            hidden_dim=model_args.hidden_dim,
-            dropout=model_args.dropout,
-            gat_droprate=model_args.gat_dropout,
-            op_embedding_dim=model_args.op_embedding_dim,
-            layout_embedding_dim=model_args.layout_embedding_dim,
-            norm=model_args.norm,
-            use_cross_attn=model_args.use_cross_attn,
-        )
+    if data_args.data_type == "layout":
+        model_cls = LayoutModel
         collate_fn = layout_collate_fn
         compute_metrics = LayoutComputeMetricsFn(val_dataset.df)
+
+    else:
+        val_dataset.cfg_scaler = train_dataset.cfg_scaler
+        model_cls = TileModel
+        collate_fn = tile_collate_fn
+        compute_metrics = TileComputeMetricsFn(val_dataset.df)
+    
+    model = model_cls(
+        hidden_channels=[int(x) for x in model_args.hidden_channels.split(",")],
+        graph_in=model_args.graph_in,
+        graph_out=model_args.graph_out,
+        hidden_dim=model_args.hidden_dim,
+        dropout=model_args.dropout,
+        gat_droprate=model_args.gat_dropout,
+        op_embedding_dim=model_args.op_embedding_dim,
+        layout_embedding_dim=model_args.layout_embedding_dim,
+        norm=model_args.norm,
+        use_cross_attn=model_args.use_cross_attn,
+    )
 
     # Initialize trainer
     print("Initializing model...")
@@ -173,6 +171,7 @@ def main():
     # Inference
     if training_args.do_predict:
         logger.info("*** Predict ***")
+        # test_dataset = val_dataset
         test_dataset = dataset_cls(
             data_type=data_args.data_type,
             source=data_args.source,
@@ -190,23 +189,30 @@ def main():
         else:
             trainer.compute_metrics = TileComputeMetricsFn(test_dataset.df, split="test")
 
-        predictions = trainer.predict(test_dataset).predictions
+        logits = trainer.predict(test_dataset).predictions
 
-        new_predictions = []
-        for e in predictions:
-            # only get top 5
-            new_predictions.append(np.array([x for x in e if x != -100]))
-
-        predictions = new_predictions
+        predictions = []
+        new_logits = []
+        for e in logits:
+            logit = np.array([x for x in e if x != -100])
+            new_logits.append(logit)
+            predictions.append(np.argsort(logit)[:50])
+        
+        logits = new_logits
 
         prediction_files = []
         prediction_indices = []
+        logits_indices = []
+        runtime_indices = []
         if data_args.data_type == "tile":
             predictions = [pred[:5] for pred in predictions]
 
-            for file_id, prediction in zip(test_dataset.df["file"], predictions):
+            for file_id, prediction, lg in zip(test_dataset.df["file"], predictions, logits):
+            # for file_id, prediction, rt, lg in zip(test_dataset.df["file"], predictions, test_dataset.df["config_runtime"], logits):
                 prediction_files.append("tile:xla:" + file_id[:-4])
                 prediction_indices.append(";".join([str(int(e)) for e in prediction]))
+                logits_indices.append(lg.tolist())
+                # runtime_indices.append(rt.tolist())
         else:
             for file_id, rows in test_dataset.df.groupby("file"):
                 idx = rows.index.tolist()
@@ -222,6 +228,8 @@ def main():
             {
                 "ID": prediction_files,
                 "TopConfigs": prediction_indices,
+                # "logits": logits_indices,
+                # "runtime": runtime_indices,
             }
         )
         if not os.path.exists("outputs_csv"):
