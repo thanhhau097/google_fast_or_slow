@@ -33,7 +33,6 @@ for f in tqdm(list(Path("./outputs_csv").glob("*.csv"))):
     # normalize predictions before mean
     # pts = [rankdata(pt) / len(pt) for pt in pts]
 
-     
     # gt_rts.append(gts)
     pred_rts.append(pts)
 
@@ -43,7 +42,6 @@ pred_rts_mean = [
 ]
 
 # print(score_tile_max(pred_rts_mean, gt_rts[0]))
-
 
 
 prediction_indices = [
@@ -56,4 +54,5 @@ submission_df = pd.DataFrame.from_dict(
         "TopConfigs": prediction_indices,
     }
 )
-submission_df.to_csv("sub_ensemble.csv", index=False)
+
+submission_df.to_csv("sub_ensemble_tile.csv", index=False)
