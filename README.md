@@ -53,3 +53,8 @@ np.save(
 ```
 
 Then use `ensemble.py` for ensembling.
+
+
+### Weights
+1. Tile XLA: https://www.kaggle.com/datasets/tomirol/tile-models-google-runtime
+2. Layout: in zip file
