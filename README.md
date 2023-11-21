@@ -41,4 +41,15 @@ python train.py --do_train=true --do_eval=true --do_predict=true --per_device_tr
 ```
 
 3. Ensembling
-   In each training, we will save the logits (`prediction_probs`) [here](https://github.com/thanhhau097/google_fast_or_slow/blob/main/train.py#L240) for each seed then average them to get final prediction. 
+   In each training, we will save the logits (`prediction_probs`) and corresponding test filenames (`prediction_files`) [here](https://github.com/thanhhau097/google_fast_or_slow/blob/main/train.py#L240) for each seed then average them to get final prediction.
+
+```
+np.save(
+   {
+      "prediction_probs": prediction_probs,
+      "prediction_files": prediction_files,
+   }, "predictions.npy", allow_pickle=True
+)
+```
+
+Then use `ensemble.py` for ensembling.
