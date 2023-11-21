@@ -240,6 +240,16 @@ def main():
         prediction_files, predictions_probs, prediction_indices = predict(
             data_args, "test", trainer, dataset_factory, tta=TTA
         )
+        # save to numpy file
+        save_dict = {
+            "prediction_files": prediction_files,
+            "predictions_probs": predictions_probs,
+        }
+        np.save(
+            os.path.join(training_args.output_dir, "predictions.npy"),
+            save_dict,
+            allow_pickle=True,
+        )
 
         # dump to csv files
         submission_df = pd.DataFrame.from_dict(
