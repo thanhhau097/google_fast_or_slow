@@ -50,7 +50,9 @@ def main():
         datefmt="%m/%d/%Y %H:%M:%S",
         handlers=[logging.StreamHandler(sys.stdout)],
     )
-    logger.setLevel(logging.INFO if is_main_process(training_args.local_rank) else logging.WARN)
+    logger.setLevel(
+        logging.INFO if is_main_process(training_args.local_rank) else logging.WARN
+    )
     # Set the verbosity to info of the Transformers logger (on main process only):
     if is_main_process(training_args.local_rank):
         # transformers.utils.logging.set_verbosity_info()
@@ -107,7 +109,7 @@ def main():
         model_cls = TileModel
         collate_fn = tile_collate_fn
         compute_metrics = TileComputeMetricsFn(val_dataset.df)
-    
+
     model = model_cls(
         hidden_channels=[int(x) for x in model_args.hidden_channels.split(",")],
         graph_in=model_args.graph_in,
@@ -186,10 +188,14 @@ def main():
         test_dataset.tgt_scaler = train_dataset.tgt_scaler
 
         if data_args.data_type == "layout":
-            trainer.compute_metrics = LayoutComputeMetricsFn(test_dataset.df, split="test")
+            trainer.compute_metrics = LayoutComputeMetricsFn(
+                test_dataset.df, split="test"
+            )
         else:
             test_dataset.cfg_scaler = train_dataset.cfg_scaler
-            trainer.compute_metrics = TileComputeMetricsFn(test_dataset.df, split="test")
+            trainer.compute_metrics = TileComputeMetricsFn(
+                test_dataset.df, split="test"
+            )
 
         logits = trainer.predict(test_dataset).predictions
 
@@ -199,7 +205,7 @@ def main():
             logit = np.array([x for x in e if x != -100])
             new_logits.append(logit)
             predictions.append(np.argsort(logit)[:50])
-        
+
         logits = new_logits
 
         prediction_files = []
@@ -209,8 +215,10 @@ def main():
         if data_args.data_type == "tile":
             predictions = [pred[:5] for pred in predictions]
 
-            for file_id, prediction, lg in zip(test_dataset.df["file"], predictions, logits):
-            # for file_id, prediction, rt, lg in zip(test_dataset.df["file"], predictions, test_dataset.df["config_runtime"], logits):
+            for file_id, prediction, lg in zip(
+                test_dataset.df["file"], predictions, logits
+            ):
+                # for file_id, prediction, rt, lg in zip(test_dataset.df["file"], predictions, test_dataset.df["config_runtime"], logits):
                 prediction_files.append("tile:xla:" + file_id[:-4])
                 prediction_indices.append(";".join([str(int(e)) for e in prediction]))
                 logits_indices.append(lg.tolist())
@@ -221,7 +229,8 @@ def main():
                 prediction = np.concatenate([predictions[i] for i in idx])
                 prediction = np.argsort(prediction)
                 prediction_files.append(
-                    f"{data_args.data_type}:{data_args.source}:{data_args.search}:" + file_id[:-4]
+                    f"{data_args.data_type}:{data_args.source}:{data_args.search}:"
+                    + file_id[:-4]
                 )
                 prediction_indices.append(";".join([str(int(e)) for e in prediction]))
 
