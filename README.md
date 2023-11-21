@@ -43,6 +43,8 @@ python train.py --do_train=true --do_eval=true --do_predict=true --per_device_tr
 3. Ensembling
    In each training, we will save the logits (`prediction_probs`) and corresponding test filenames (`prediction_files`) [here](https://github.com/thanhhau097/google_fast_or_slow/blob/main/train.py#L240) for each seed then average them to get final prediction. Then use `ensemble.py` for ensembling.
 
+### Notes:
+- To reproduce our submissions, please rerun all above commands with --do_predict only, and use --resume <path_to_weights> to load the trained model.
 
 ### Weights
 1. Tile XLA: https://www.kaggle.com/datasets/tomirol/tile-models-google-runtime
