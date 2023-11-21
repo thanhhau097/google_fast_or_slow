@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 
+# TODO: update paths to folders contains predictions.npy here
 fold_folders = []
 
 fold_predictions_dict = {}
@@ -22,7 +23,7 @@ for folder in fold_folders:
 
 mean_predictions_dict = defaultdict(list)
 
-for file in fold_predictions_dict["fold_0"].keys():
+for file in fold_predictions_dict[list(fold_predictions_dict.keys())[0]].keys():
     for key in fold_predictions_dict.keys():
         mean_predictions_dict[file].append(fold_predictions_dict[key][file])
 
@@ -35,4 +36,4 @@ df = pd.DataFrame.from_dict({
     "TopConfigs": mean_predictions_dict.values()
 })
 df["TopConfigs"] = df["TopConfigs"].apply(lambda x: ";".join([str(i) for i in x]))
-df
+df.to_csv("ensemble.csv", index=False)
