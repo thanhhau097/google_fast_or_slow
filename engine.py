@@ -47,7 +47,9 @@ def pairwise_hinge_loss(y_pred, y_true):
 
     y_pred = y_pred.unsqueeze(0)
     y_true = y_true.unsqueeze(0)
-    return loss_fn(y_pred, y_true, n=torch.tensor([y_pred.shape[1]], device=y_pred.device)).mean()
+    return loss_fn(
+        y_pred, y_true, n=torch.tensor([y_pred.shape[1]], device=y_pred.device)
+    ).mean()
 
 
 class CustomTrainer(Trainer):
@@ -65,6 +67,7 @@ class CustomTrainer(Trainer):
             outputs = model(
                 inputs["config_feat"],
                 inputs["node_feat"],
+                inputs["node_layout_feat"],
                 inputs["node_opcode"],
                 inputs["edge_index"],
             )
@@ -102,18 +105,24 @@ class CustomTrainer(Trainer):
         optimizer_grouped_parameters = [
             {
                 "params": [
-                    p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)
+                    p
+                    for n, p in model.named_parameters()
+                    if not any(nd in n for nd in no_decay)
                 ],
                 "weight_decay": self.args.weight_decay,
             },
             {
                 "params": [
-                    p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)
+                    p
+                    for n, p in model.named_parameters()
+                    if any(nd in n for nd in no_decay)
                 ],
                 "weight_decay": 0.0,
             },
         ]
-        optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(self.args)
+        optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(
+            self.args
+        )
         self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
         return self.optimizer
 
@@ -137,7 +146,9 @@ class CustomTrainer(Trainer):
             raise ValueError("dataloader must implement a working __len__")
 
         prediction_loss_only = (
-            prediction_loss_only if prediction_loss_only is not None else args.prediction_loss_only
+            prediction_loss_only
+            if prediction_loss_only is not None
+            else args.prediction_loss_only
         )
 
         # if eval is called w/o train, handle model prep here
@@ -226,7 +237,9 @@ class CustomTrainer(Trainer):
             if loss is not None:
                 losses = loss.repeat(batch_size)
                 losses_host = (
-                    losses if losses_host is None else torch.cat((losses_host, losses), dim=0)
+                    losses
+                    if losses_host is None
+                    else torch.cat((losses_host, losses), dim=0)
                 )
             if logits is not None:
                 preds_host = (
@@ -244,9 +257,13 @@ class CustomTrainer(Trainer):
                 inputs_host = (
                     inputs_decode
                     if inputs_host is None
-                    else nested_concat(inputs_host, inputs_decode, padding_index=padding_value)
+                    else nested_concat(
+                        inputs_host, inputs_decode, padding_index=padding_value
+                    )
                 )
-            self.control = self.callback_handler.on_prediction_step(args, self.state, self.control)
+            self.control = self.callback_handler.on_prediction_step(
+                args, self.state, self.control
+            )
 
             # Gather all tensors and put them back on the CPU if we have done enough accumulation steps.
             if (
@@ -257,7 +274,9 @@ class CustomTrainer(Trainer):
                     self._gather_and_numpify(losses_host, "eval_losses")
                 )
                 if not prediction_loss_only:
-                    preds_gatherer.add_arrays(self._gather_and_numpify(preds_host, "eval_preds"))
+                    preds_gatherer.add_arrays(
+                        self._gather_and_numpify(preds_host, "eval_preds")
+                    )
                     labels_gatherer.add_arrays(
                         self._gather_and_numpify(labels_host, "eval_label_ids")
                     )
@@ -266,28 +285,47 @@ class CustomTrainer(Trainer):
                     )
 
                 # Set back to None to begin a new accumulation
-                losses_host, preds_host, labels_host, inputs_host = None, None, None, None
+                losses_host, preds_host, labels_host, inputs_host = (
+                    None,
+                    None,
+                    None,
+                    None,
+                )
 
         if args.past_index and hasattr(self, "_past"):
             # Clean the state at the end of the evaluation loop
             delattr(self, "_past")
 
         # Gather all remaining tensors and put them back on the CPU
-        eval_losses_gatherer.add_arrays(self._gather_and_numpify(losses_host, "eval_losses"))
+        eval_losses_gatherer.add_arrays(
+            self._gather_and_numpify(losses_host, "eval_losses")
+        )
         if not prediction_loss_only:
-            preds_gatherer.add_arrays(self._gather_and_numpify(preds_host, "eval_preds"))
-            labels_gatherer.add_arrays(self._gather_and_numpify(labels_host, "eval_label_ids"))
-            inputs_gatherer.add_arrays(self._gather_and_numpify(inputs_host, "eval_inputs_ids"))
+            preds_gatherer.add_arrays(
+                self._gather_and_numpify(preds_host, "eval_preds")
+            )
+            labels_gatherer.add_arrays(
+                self._gather_and_numpify(labels_host, "eval_label_ids")
+            )
+            inputs_gatherer.add_arrays(
+                self._gather_and_numpify(inputs_host, "eval_inputs_ids")
+            )
 
         eval_loss = eval_losses_gatherer.finalize()
         preds = preds_gatherer.finalize() if not prediction_loss_only else None
         label_ids = labels_gatherer.finalize() if not prediction_loss_only else None
         inputs_ids = inputs_gatherer.finalize() if not prediction_loss_only else None
 
-        if self.compute_metrics is not None and preds is not None and label_ids is not None:
+        if (
+            self.compute_metrics is not None
+            and preds is not None
+            and label_ids is not None
+        ):
             if args.include_inputs_for_metrics:
                 metrics = self.compute_metrics(
-                    EvalPrediction(predictions=preds, label_ids=label_ids, inputs=inputs_ids)
+                    EvalPrediction(
+                        predictions=preds, label_ids=label_ids, inputs=inputs_ids
+                    )
                 )
             else:
                 metrics = self.compute_metrics(
@@ -308,7 +346,10 @@ class CustomTrainer(Trainer):
                 metrics[f"{metric_key_prefix}_{key}"] = metrics.pop(key)
 
         return EvalLoopOutput(
-            predictions=preds, label_ids=label_ids, metrics=metrics, num_samples=num_examples
+            predictions=preds,
+            label_ids=label_ids,
+            metrics=metrics,
+            num_samples=num_examples,
         )
 
     def evaluation_loop(
@@ -328,7 +369,9 @@ class CustomTrainer(Trainer):
         args = self.args
 
         prediction_loss_only = (
-            prediction_loss_only if prediction_loss_only is not None else args.prediction_loss_only
+            prediction_loss_only
+            if prediction_loss_only is not None
+            else args.prediction_loss_only
         )
 
         # if eval is called w/o train, handle model prep here
@@ -440,7 +483,9 @@ class CustomTrainer(Trainer):
                 inputs_host = (
                     inputs_decode
                     if inputs_host is None
-                    else nested_concat(inputs_host, inputs_decode, padding_index=padding_value)
+                    else nested_concat(
+                        inputs_host, inputs_decode, padding_index=padding_value
+                    )
                 )
             if logits is not None:
                 logits = self.accelerator.pad_across_processes(
@@ -463,7 +508,9 @@ class CustomTrainer(Trainer):
                     else nested_concat(labels_host, labels, padding_index=padding_value)
                 )
 
-            self.control = self.callback_handler.on_prediction_step(args, self.state, self.control)
+            self.control = self.callback_handler.on_prediction_step(
+                args, self.state, self.control
+            )
 
             # Gather all tensors and put them back on the CPU if we have done enough accumulation steps.
             if (
@@ -486,25 +533,36 @@ class CustomTrainer(Trainer):
                     all_preds = (
                         logits
                         if all_preds is None
-                        else nested_concat(all_preds, logits, padding_index=padding_value)
+                        else nested_concat(
+                            all_preds, logits, padding_index=padding_value
+                        )
                     )
                 if inputs_host is not None:
                     inputs_decode = nested_numpify(inputs_host)
                     all_inputs = (
                         inputs_decode
                         if all_inputs is None
-                        else nested_concat(all_inputs, inputs_decode, padding_index=padding_value)
+                        else nested_concat(
+                            all_inputs, inputs_decode, padding_index=padding_value
+                        )
                     )
                 if labels_host is not None:
                     labels = nested_numpify(labels_host)
                     all_labels = (
                         labels
                         if all_labels is None
-                        else nested_concat(all_labels, labels, padding_index=padding_value)
+                        else nested_concat(
+                            all_labels, labels, padding_index=padding_value
+                        )
                     )
 
                 # Set back to None to begin a new accumulation
-                losses_host, preds_host, inputs_host, labels_host = None, None, None, None
+                losses_host, preds_host, inputs_host, labels_host = (
+                    None,
+                    None,
+                    None,
+                    None,
+                )
 
         if args.past_index and hasattr(self, "_past"):
             # Clean the state at the end of the evaluation loop
@@ -514,7 +572,9 @@ class CustomTrainer(Trainer):
         if losses_host is not None:
             losses = nested_numpify(losses_host)
             all_losses = (
-                losses if all_losses is None else np.concatenate((all_losses, losses), axis=0)
+                losses
+                if all_losses is None
+                else np.concatenate((all_losses, losses), axis=0)
             )
         if preds_host is not None:
             logits = nested_numpify(preds_host)
@@ -528,7 +588,9 @@ class CustomTrainer(Trainer):
             all_inputs = (
                 inputs_decode
                 if all_inputs is None
-                else nested_concat(all_inputs, inputs_decode, padding_index=padding_value)
+                else nested_concat(
+                    all_inputs, inputs_decode, padding_index=padding_value
+                )
             )
         if labels_host is not None:
             labels = nested_numpify(labels_host)
@@ -557,10 +619,16 @@ class CustomTrainer(Trainer):
             num_samples = observed_num_examples
 
         # Metrics!
-        if self.compute_metrics is not None and all_preds is not None and all_labels is not None:
+        if (
+            self.compute_metrics is not None
+            and all_preds is not None
+            and all_labels is not None
+        ):
             if args.include_inputs_for_metrics:
                 metrics = self.compute_metrics(
-                    EvalPrediction(predictions=all_preds, label_ids=all_labels, inputs=all_inputs)
+                    EvalPrediction(
+                        predictions=all_preds, label_ids=all_labels, inputs=all_inputs
+                    )
                 )
             else:
                 metrics = self.compute_metrics(
@@ -575,7 +643,9 @@ class CustomTrainer(Trainer):
         if all_losses is not None:
             metrics[f"{metric_key_prefix}_loss"] = all_losses.mean().item()
         if hasattr(self, "jit_compilation_time"):
-            metrics[f"{metric_key_prefix}_jit_compilation_time"] = self.jit_compilation_time
+            metrics[
+                f"{metric_key_prefix}_jit_compilation_time"
+            ] = self.jit_compilation_time
 
         # Prefix all keys with metric_key_prefix + '_'
         for key in list(metrics.keys()):
@@ -583,10 +653,15 @@ class CustomTrainer(Trainer):
                 metrics[f"{metric_key_prefix}_{key}"] = metrics.pop(key)
 
         return EvalLoopOutput(
-            predictions=all_preds, label_ids=all_labels, metrics=metrics, num_samples=num_samples
+            predictions=all_preds,
+            label_ids=all_labels,
+            metrics=metrics,
+            num_samples=num_samples,
         )
 
-    def prediction_step(self, model, inputs, prediction_loss_only=False, ignore_keys=None):
+    def prediction_step(
+        self, model, inputs, prediction_loss_only=False, ignore_keys=None
+    ):
         inputs = self._prepare_inputs(inputs)
         with torch.no_grad():
             with self.compute_loss_context_manager():
@@ -596,21 +671,11 @@ class CustomTrainer(Trainer):
         if prediction_loss_only:
             return (loss, None, None)
 
-        # if self.data_type == "tile":
-        #     del inputs["config_feat"]
-        # else:
-        #     del inputs["node_config_feat"]
-        #     del inputs["node_layout_feat"]
-
-        # del inputs["node_feat"]
-        # del inputs["node_opcode"]
-        # del inputs["edge_index"]
-
-        # gc.collect()
-
         if self.data_type == "tile":
             # TODO: why 50 here?
-            predictions = np.argsort(outputs.cpu().detach().numpy())[:50]
+            # predictions = np.argsort(outputs.cpu().detach().numpy())[:50]
+            # predictions = torch.sigmoid(outputs).cpu().detach().numpy()
+            predictions = (outputs / 100).cpu().detach().numpy()
             return loss, torch.tensor([predictions]), inputs["target"]
         else:
             predictions = outputs.cpu().detach().numpy()
@@ -626,7 +691,8 @@ class CustomTrainer(Trainer):
 def score_tile_mean(predictions, df):
     score = 0
     for i in range(len(df)):
-        predbest = np.mean(df.iloc[i]["config_runtime"][predictions[i]])
+        preds_idx = np.argsort(predictions[i])[:50]
+        predbest = np.mean(df.iloc[i]["config_runtime"][preds_idx])
         best = np.mean(np.sort(df.iloc[i]["config_runtime"])[:50])
         score += 2 - predbest / best
     score /= len(df)
@@ -636,7 +702,8 @@ def score_tile_mean(predictions, df):
 def score_tile_max(predictions, df):
     score = 0
     for i in range(len(df)):
-        predbest = np.min(df.iloc[i]["config_runtime"][predictions[i][:5]])
+        preds_idx = np.argsort(predictions[i])[:50]
+        predbest = np.min(df.iloc[i]["config_runtime"][preds_idx[:5]])
         best = np.min(df.iloc[i]["config_runtime"])
         # print(best,predbest)
         score += 2 - predbest / best

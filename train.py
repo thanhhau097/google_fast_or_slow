@@ -11,7 +11,13 @@ from transformers import HfArgumentParser, TrainingArguments, set_seed
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
 
 from data_args import DataArguments
-from dataset import LayoutDataset, TileDataset, layout_collate_fn, tile_collate_fn, DatasetFactory
+from dataset import (
+    LayoutDataset,
+    TileDataset,
+    layout_collate_fn,
+    tile_collate_fn,
+    DatasetFactory,
+)
 from engine import CustomTrainer, LayoutComputeMetricsFn, TileComputeMetricsFn
 from model import LayoutModel, TileModel, LayoutModel
 from model_args import ModelArguments
@@ -62,7 +68,9 @@ def _predict_single(data_args, trainer, test_dataset, padding_value: int = -9999
 def predict(data_args, split, trainer, dataset_factory, tta=None):
     if tta is None:
         test_dataset = dataset_factory.get_dataset_for_inference(split)
-        prediction_files, predictions_probs = _predict_single(data_args, trainer, test_dataset)
+        prediction_files, predictions_probs = _predict_single(
+            data_args, trainer, test_dataset
+        )
         prediction_indices = []
         for pred_prob in predictions_probs:
             prediction = np.argsort(pred_prob)
@@ -73,7 +81,9 @@ def predict(data_args, split, trainer, dataset_factory, tta=None):
     for test_dataset, permutations in tqdm(
         dataset_factory.get_tta_dataset(split, nb_permutations=tta, seed=101), total=tta
     ):
-        prediction_files, predictions_probs = _predict_single(data_args, trainer, test_dataset)
+        prediction_files, predictions_probs = _predict_single(
+            data_args, trainer, test_dataset
+        )
         # unshuffle predictions using the indexes
         new_predictions_probs = []
         for pred_file, pred_prob in zip(prediction_files, predictions_probs):
@@ -122,7 +132,9 @@ def main():
         datefmt="%m/%d/%Y %H:%M:%S",
         handlers=[logging.StreamHandler(sys.stdout)],
     )
-    logger.setLevel(logging.INFO if is_main_process(training_args.local_rank) else logging.WARN)
+    logger.setLevel(
+        logging.INFO if is_main_process(training_args.local_rank) else logging.WARN
+    )
     # Set the verbosity to info of the Transformers logger (on main process only):
     if is_main_process(training_args.local_rank):
         # transformers.utils.logging.set_verbosity_info()
@@ -227,7 +239,9 @@ def main():
         )
         metric_fn = LayoutComputeMetricsFn(dataset_factory.valid_df, split="valid")
         gts = [
-            metric_fn.df.set_index("file").loc[file.split(":")[-1] + ".npz", "config_runtime"]
+            metric_fn.df.set_index("file").loc[
+                file.split(":")[-1] + ".npz", "config_runtime"
+            ]
             for file in prediction_files
         ]
         metrics = metric_fn((predictions_probs, gts))

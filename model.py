@@ -48,57 +48,125 @@ class FixedGraphNorm(torch.nn.Module):
 
 
 class TileModel(torch.nn.Module):
-    def __init__(self, hidden_channels, graph_in, graph_out, hidden_dim, dropout=0.0):
+    def __init__(
+        self,
+        hidden_channels,
+        graph_in,
+        graph_out,
+        hidden_dim,
+        dropout=0.0,
+        op_embedding_dim=4,
+        layout_embedding_dim=4,
+        act=nn.GELU,
+        norm="instance",
+        gat_droprate=0,
+        graph_droprate=0,
+        use_cross_attn=False,
+    ):
         super().__init__()
-        op_embedding_dim = 4  # I choose 4-dimensional embedding
-        self.embedding = torch.nn.Embedding(
+        self.embedding_op = torch.nn.Embedding(
             120,  # 120 different op-codes
             op_embedding_dim,
         )
+        self.embedding_layout_cfg = torch.nn.Embedding(
+            5 + 3, layout_embedding_dim
+        )  # [1-5] + [0,-1, -2]
+        # self.embedding_layout_feats = torch.nn.Embedding(6, layout_embedding_dim)  # [0-5]
         assert len(hidden_channels) > 0
+        print(f"Dropout {dropout}")
+        NODE_FEAT_DIM = 134
+        NODE_LAYOUT_FEAT_DIM = 6
+        self.linear = LinearActNorm(
+            op_embedding_dim
+            + NODE_FEAT_DIM
+            + (NODE_LAYOUT_FEAT_DIM * layout_embedding_dim),
+            graph_in,
+            act=act,
+            norm=norm,
+            use_cross_attn=use_cross_attn,
+        )
+        self.linear2 = LinearActNorm(
+            graph_in, graph_in, act=act, norm=norm, use_cross_attn=use_cross_attn
+        )
 
-        self.linear = nn.Linear(op_embedding_dim + 140, graph_in)
-        in_channels = graph_in
-        self.convs = torch.nn.ModuleList()
-        last_dim = hidden_channels[0]
-        conv = SAGEConv
-        self.convs.append(conv(in_channels, hidden_channels[0]))
-        for i in range(len(hidden_channels) - 1):
-            self.convs.append(conv(hidden_channels[i], hidden_channels[i + 1]))
-            last_dim = hidden_channels[i + 1]
-        self.convs.append(conv(last_dim, graph_out))
-
-        self.dense = torch.nn.Sequential(
-            nn.Linear(graph_out * 2 + 24, hidden_dim),
+        self.convs = nn.ModuleList(
+            [
+                SageGraphBlock(
+                    graph_in,
+                    act,
+                    droprate=gat_droprate,
+                    graph_droprate=graph_droprate,
+                    norm=norm,
+                    use_cross_attn=use_cross_attn,
+                )
+                for _ in range(len(hidden_channels))
+            ]
+        )
+        self.dense_cfg = torch.nn.Sequential(
+            nn.Linear(24, hidden_dim),
             nn.Dropout(p=dropout),
-            nn.ReLU(),
+            nn.GELU(),
+            nn.Linear(hidden_dim, hidden_dim),
+        )
+        self.dense = torch.nn.Sequential(
+            nn.Linear(3 * hidden_dim, hidden_dim),
+            nn.Dropout(p=dropout),
+            nn.GELU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.Dropout(p=dropout),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Linear(hidden_dim, 1),
         )
 
-    #         self.dropout = nn.Dropout(p=dropout)
+    def single_pass_forward(
+        self,
+        x_cfg: Tensor,
+        x_feat: Tensor,
+        x_node_layout_feat: Tensor,
+        x_op: Tensor,
+        edge_index: Tensor,
+    ):
+        x_node_layout_feat = self.embedding_layout_cfg(x_node_layout_feat + 2).reshape(x_feat.shape[0], -1)
+        x_op = self.embedding_op(x_op)
 
-    def forward(self, x_cfg: Tensor, x_feat: Tensor, x_op: Tensor, edge_index: Tensor) -> Tensor:
-        # get graph features
-        x = torch.concat([x_feat, self.embedding(x_op)], dim=1)
-        x = self.linear(x)
+        node_feat = torch.concat([x_feat, x_node_layout_feat, x_op], dim=1).unsqueeze(0)
+
+        # Only used for GraphNorm, which takes stats across the nb_configs dimension
+        batch = torch.zeros(node_feat.shape[0], dtype=torch.long).to(node_feat.device)
+
+        node_feat = self.linear(node_feat, edge_index, batch)
+        node_feat = self.linear2(node_feat, edge_index, batch)
+
         # pass though conv layers
         for conv in self.convs:
-            x = conv(x, edge_index).relu()
-        # get 1d graph embedding using average pooling
-        x_mean = x.mean(0)
-        x_max = x.max(0).values
+            node_feat = conv(node_feat, edge_index, batch)
+        
+        return node_feat
 
-        # put graph data into config data
+
+    def forward(
+        self,
+        x_cfg: Tensor,
+        x_feat: Tensor,
+        x_node_layout_feat: Tensor,
+        x_op: Tensor,
+        edge_index: Tensor,
+    ) -> Tensor:
+        node_feat = self.single_pass_forward(x_cfg, x_feat, x_node_layout_feat, x_op, edge_index)
+
+        x_mean = node_feat.squeeze(0).mean(0)
+        x_max = node_feat.squeeze(0).max(0).values
+
+        x_cfg = self.dense_cfg(x_cfg)
+
         x = torch.concat(
             [x_cfg, x_max.repeat((len(x_cfg), 1)), x_mean.repeat((len(x_cfg), 1))],
             axis=1,
         )
-        # put into dense nn
+
         x = torch.flatten(self.dense(x))
-        x = (x - torch.mean(x)) / (torch.std(x) + 1e-5)
+        # x = (x - torch.mean(x)) / (torch.std(x) + 1e-5)
+
         return x
 
 
