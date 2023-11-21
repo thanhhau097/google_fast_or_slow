@@ -5,6 +5,7 @@ import sys
 import numpy as np
 import pandas as pd
 import torch
+from pathlib import Path
 import transformers
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from transformers import HfArgumentParser, TrainingArguments, set_seed
@@ -15,81 +16,14 @@ from dataset import LayoutDataset, TileDataset, layout_collate_fn, tile_collate_
 from engine import CustomTrainer, LayoutComputeMetricsFn, TileComputeMetricsFn
 from model import LayoutModel, TileModel, LayoutModel
 from model_args import ModelArguments
-from tqdm.auto import tqdm
+from train import predict
+from safetensors import safe_open
 
 torch.set_float32_matmul_precision("high")
 logger = logging.getLogger(__name__)
 
+NB_FOLDS = 7
 TTA = None
-
-
-def _predict_single(data_args, trainer, test_dataset, padding_value: int = -9999):
-    if data_args.data_type == "layout":
-        trainer.compute_metrics = LayoutComputeMetricsFn(test_dataset.df, split="test")
-    else:
-        trainer.compute_metrics = TileComputeMetricsFn(test_dataset.df, split="test")
-
-    predictions = trainer.predict(test_dataset).predictions
-
-    new_predictions = []
-    for e in predictions:
-        # only get top 5
-        new_predictions.append(np.array([x for x in e if x != padding_value]))
-
-    predictions = new_predictions
-
-    prediction_files = []
-    predictions_probs = []
-
-    if data_args.data_type == "tile":
-        predictions = [pred[:5] for pred in predictions]
-
-        for file_id, prediction in zip(test_dataset.df["file"], predictions):
-            prediction_files.append("tile:xla:" + file_id[:-4])
-            predictions_probs.append(prediction)
-    else:
-        for file_id, rows in test_dataset.df.groupby("file"):
-            idx = rows.index.tolist()
-            prediction = np.concatenate([predictions[i] for i in idx])
-            predictions_probs.append(prediction)
-            prediction_files.append(
-                f"{data_args.data_type}:{data_args.source.replace('_pruned', '')}:{data_args.search}:"
-                + file_id[:-4]
-            )
-    return prediction_files, predictions_probs
-
-
-def predict(data_args, split, trainer, dataset_factory, tta=None):
-    if tta is None:
-        test_dataset = dataset_factory.get_dataset_for_inference(split)
-        prediction_files, predictions_probs = _predict_single(data_args, trainer, test_dataset)
-        prediction_indices = []
-        for pred_prob in predictions_probs:
-            prediction = np.argsort(pred_prob)
-            prediction_indices.append(";".join([str(int(e)) for e in prediction]))
-        return prediction_files, predictions_probs, prediction_indices
-
-    all_probs = []
-    for test_dataset, permutations in tqdm(
-        dataset_factory.get_tta_dataset(split, nb_permutations=tta, seed=101), total=tta
-    ):
-        prediction_files, predictions_probs = _predict_single(data_args, trainer, test_dataset)
-        # unshuffle predictions using the indexes
-        new_predictions_probs = []
-        for pred_file, pred_prob in zip(prediction_files, predictions_probs):
-            idx = permutations[pred_file.split(":")[-1] + ".npz"]
-            new_predictions_probs.append(pred_prob[np.argsort(idx)])
-        all_probs.append(new_predictions_probs)
-    # average predictions
-    final_probs = []
-    for i in range(len(prediction_files)):
-        final_probs.append(np.stack([e[i] for e in all_probs], axis=0).mean(0))
-
-    prediction_indices = []
-    for pred_prob in final_probs:
-        prediction = np.argsort(pred_prob)
-        prediction_indices.append(";".join([str(int(e)) for e in prediction]))
-    return prediction_files, final_probs, prediction_indices
 
 
 def main():
@@ -131,7 +65,7 @@ def main():
 
     # Set seed before initializing model.
     set_seed(training_args.seed)
-
+    output_dir = training_args.output_dir
     # Load dataset
     print("Loading dataset...")
 
@@ -150,9 +84,117 @@ def main():
         select_close_runtimes_prob=data_args.select_close_runtimes_prob,
         filter_random_configs=data_args.filter_random_configs,
         add_pseudo=data_args.add_pseudo,
+        # kfold=NB_FOLDS,
     )
-    train_dataset, val_dataset, test_dataset = dataset_factory.get_datasets()
 
+    all_predictions_probs = []
+    all_val_probs = []
+    for fold in range(NB_FOLDS):
+        if not training_args.do_train and model_args.weights_folder:
+            ckpt_path = (
+                Path(model_args.weights_folder)
+                / f"fold_{fold}"
+                / "checkpoint"
+                # / "pytorch_model.bin"
+                / "model.safetensors"
+            )
+            if not ckpt_path.exists():
+                print(f"Checkpoint {ckpt_path} not found. Skipping fold {fold}")
+                continue
+            last_checkpoint = str(ckpt_path)
+
+        (prediction_files, predictions_prob), (val_files, val_probs, val_gts) = train_on_fold(
+            output_dir,
+            data_args,
+            model_args,
+            training_args,
+            dataset_factory,
+            fold,
+            last_checkpoint,
+        )
+        all_predictions_probs.append(predictions_prob)
+        all_val_probs.append(val_probs)
+
+    # Get ensemble validation result
+    avg_val_probs = []
+    for i in range(len(val_files)):
+        avg_val_probs.append(np.stack([x[i] for x in all_val_probs], axis=0).mean(0))
+    metric_fn = LayoutComputeMetricsFn(dataset_factory.valid_df, split="valid")
+    metrics = metric_fn((avg_val_probs, val_gts))
+    print(f"Final ensemble metrics: {metrics}")
+
+    prediction_indices = []
+    avg_prediction_probs = []
+    for i in range(len(prediction_files)):
+        pred_probs = np.stack([x[i] for x in all_predictions_probs], axis=0).mean(0)
+        prediction = np.argsort(pred_probs)
+        prediction_indices.append(";".join([str(int(e)) for e in prediction]))
+        avg_prediction_probs.append(pred_probs)
+
+    # dump to csv files
+    submission_df = pd.DataFrame.from_dict(
+        {
+            "ID": prediction_files,
+            "TopConfigs": prediction_indices,
+        }
+    )
+    if not os.path.exists("outputs_csv"):
+        os.makedirs("outputs_csv")
+
+    if data_args.data_type == "tile":
+        submission_df.to_csv(os.path.join("outputs_csv", "tile:xla:submission.csv"), index=False)
+    else:
+        submission_df.to_csv(
+            os.path.join(
+                "outputs_csv",
+                f"{data_args.data_type}:{data_args.source}:{data_args.search}:submission.csv",
+            ),
+            index=False,
+        )
+
+    # also save extra stuff
+    pred_df = pd.DataFrame.from_dict(
+        {
+            "ID": prediction_files,
+            "probs": avg_prediction_probs,
+        }
+    )
+    pred_df["probs"] = pred_df["probs"].apply(lambda x: ";".join([str(e) for e in x]))
+    pred_df.to_csv(
+        os.path.join(
+            "outputs_probs",
+            f"{data_args.data_type}:{data_args.source}:{data_args.search}:pred_probs.csv",
+        ),
+    )
+    val_df = pd.DataFrame.from_dict(
+        {
+            "ID": val_files,
+            "probs": avg_val_probs,
+            "gts": val_gts,
+        }
+    )
+    val_df["probs"] = val_df["probs"].apply(lambda x: ";".join([str(e) for e in x]))
+    val_df["gts"] = val_df["gts"].apply(lambda x: ";".join([str(e) for e in x]))
+    val_df.to_csv(
+        os.path.join(
+            "outputs_probs",
+            f"{data_args.data_type}:{data_args.source}:{data_args.search}:val_probs.csv",
+        ),
+    )
+
+
+def train_on_fold(
+    output_dir, data_args, model_args, training_args, dataset_factory, fold, last_checkpoint
+):
+    print(f"Starting fold {fold}")
+    set_seed(training_args.seed + fold)
+    training_args.output_dir = Path(output_dir) / f"fold_{fold}"
+    training_args.output_dir.mkdir(exist_ok=True, parents=True)
+    training_args.output_dir = str(training_args.output_dir)
+
+    train_dataset, val_dataset, test_dataset = dataset_factory.get_datasets(
+        # fold, output_dir=training_args.output_dir
+    )
     if data_args.data_type == "tile":
         model = TileModel(
             hidden_channels=[int(x) for x in model_args.hidden_channels.split(",")],
@@ -182,18 +224,14 @@ def main():
     # Initialize trainer
     print("Initializing model...")
 
-    if last_checkpoint is None and model_args.resume is not None:
-        logger.info(f"Loading {model_args.resume} ...")
-        checkpoint = torch.load(model_args.resume, "cpu")
+    if last_checkpoint is not None:
+        logger.info(f"Loading {last_checkpoint} ...")
+        # checkpoint = torch.load(last_checkpoint, "cpu")
+        checkpoint = safe_open(last_checkpoint, "pt")
+        checkpoint = {k: checkpoint.get_tensor(k) for k in checkpoint.keys()}
         if "state_dict" in checkpoint:
             checkpoint = checkpoint.pop("state_dict")
-        # checkpoint = {k[6:]: v for k, v in checkpoint.items()}
         model.load_state_dict(checkpoint)
-
-        # if "fc.weight" in checkpoint:
-        #     model.fc.load_state_dict(
-        #         {"weight": checkpoint["fc.weight"], "bias": checkpoint["fc.bias"]}
-        #     )
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = model.to(device)
@@ -222,47 +260,22 @@ def main():
     # Evaluation
     if training_args.do_eval:
         logger.info("*** Evaluate ***")
-        prediction_files, predictions_probs, _ = predict(
-            data_args, "valid", trainer, dataset_factory, tta=TTA
-        )
+        val_files, val_probs, _ = predict(data_args, "valid", trainer, dataset_factory, tta=TTA)
         metric_fn = LayoutComputeMetricsFn(dataset_factory.valid_df, split="valid")
-        gts = [
+        val_gts = [
             metric_fn.df.set_index("file").loc[file.split(":")[-1] + ".npz", "config_runtime"]
-            for file in prediction_files
+            for file in val_files
         ]
-        metrics = metric_fn((predictions_probs, gts))
+        metrics = metric_fn((val_probs, val_gts))
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
 
     # Inference
-    if training_args.do_predict:
-        logger.info("*** Predict ***")
-        prediction_files, predictions_probs, prediction_indices = predict(
-            data_args, "test", trainer, dataset_factory, tta=TTA
-        )
-
-        # dump to csv files
-        submission_df = pd.DataFrame.from_dict(
-            {
-                "ID": prediction_files,
-                "TopConfigs": prediction_indices,
-            }
-        )
-        if not os.path.exists("outputs_csv"):
-            os.makedirs("outputs_csv")
-
-        if data_args.data_type == "tile":
-            submission_df.to_csv(
-                os.path.join("outputs_csv", "tile:xla:submission.csv"), index=False
-            )
-        else:
-            submission_df.to_csv(
-                os.path.join(
-                    "outputs_csv",
-                    f"{data_args.data_type}:{data_args.source}:{data_args.search}:submission.csv",
-                ),
-                index=False,
-            )
+    logger.info("*** Predict ***")
+    prediction_files, predictions_probs, _ = predict(
+        data_args, "test", trainer, dataset_factory, tta=TTA
+    )
+    return (prediction_files, predictions_probs), (val_files, val_probs, val_gts)
 
 
 if __name__ == "__main__":
