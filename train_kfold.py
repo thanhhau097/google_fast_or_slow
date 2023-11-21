@@ -22,11 +22,13 @@ from safetensors import safe_open
 torch.set_float32_matmul_precision("high")
 logger = logging.getLogger(__name__)
 
-NB_FOLDS = 7
+NB_FOLDS = 20
 TTA = None
+CKPT_MODE_SAFETENSOR = False
 
 
 def main():
+    global CKPT_MODE_SAFETENSOR
     parser = HfArgumentParser((DataArguments, ModelArguments, TrainingArguments))
     data_args, model_args, training_args = parser.parse_args_into_dataclasses()
 
@@ -91,14 +93,14 @@ def main():
     all_val_probs = []
     for fold in range(NB_FOLDS):
         if not training_args.do_train and model_args.weights_folder:
-            ckpt_path = (
-                Path(model_args.weights_folder)
-                / f"fold_{fold}"
-                / "checkpoint"
-                # / "pytorch_model.bin"
-                / "model.safetensors"
-            )
-            if not ckpt_path.exists():
+            ckpt_path = Path(model_args.weights_folder) / f"fold_{fold}" / "checkpoint"
+            if (ckpt_path / "pytorch_model.bin").exists():
+                ckpt_path = ckpt_path / "pytorch_model.bin"
+                CKPT_MODE_SAFETENSOR = False
+            elif (ckpt_path / "model.safetensors").exists():
+                ckpt_path = ckpt_path / "model.safetensors"
+                CKPT_MODE_SAFETENSOR = True
+            else:
                 print(f"Checkpoint {ckpt_path} not found. Skipping fold {fold}")
                 continue
             last_checkpoint = str(ckpt_path)
@@ -226,9 +228,11 @@ def train_on_fold(
 
     if last_checkpoint is not None:
         logger.info(f"Loading {last_checkpoint} ...")
-        # checkpoint = torch.load(last_checkpoint, "cpu")
-        checkpoint = safe_open(last_checkpoint, "pt")
-        checkpoint = {k: checkpoint.get_tensor(k) for k in checkpoint.keys()}
+        if not CKPT_MODE_SAFETENSOR:
+            checkpoint = torch.load(last_checkpoint, "cpu")
+        else:
+            checkpoint = safe_open(last_checkpoint, "pt")
+            checkpoint = {k: checkpoint.get_tensor(k) for k in checkpoint.keys()}
         if "state_dict" in checkpoint:
             checkpoint = checkpoint.pop("state_dict")
         model.load_state_dict(checkpoint)
