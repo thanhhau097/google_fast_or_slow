@@ -202,7 +202,7 @@ def main():
         predictions = []
         new_logits = []
         for e in logits:
-            logit = np.array([x for x in e if x != -100])
+            logit = np.array([x for x in e if x != -9999])
             new_logits.append(logit)
             predictions.append(np.argsort(logit)[:50])
 
