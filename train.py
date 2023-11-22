@@ -254,6 +254,12 @@ def main():
         prediction_files, predictions_probs, prediction_indices = predict(
             data_args, "test", trainer, dataset_factory, tta=TTA
         )
+        # # Fix names for submission
+        # prediction_files = [
+        #     str(f).replace("_compressed", "").replace("_pruned", "")
+        #     for f in prediction_files
+        # ]
+
         # save to numpy file
         save_dict = {
             "prediction_files": prediction_files,
