@@ -584,9 +584,14 @@ class DatasetFactory:
         if search == "mix":
             # in mix mode, we load all the data both from default and random
             if not use_compressed:
-                default_df = load_df(
-                    os.path.join(data_folder, data_type, source, "default"), split
-                )
+                if data_type == "layout":
+                    default_df = load_df(
+                        os.path.join(data_folder, data_type, source, "default"), split
+                    )
+                else:
+                    default_df = load_df(
+                        os.path.join(data_folder, data_type, source), split
+                    )
                 random_df = load_df(os.path.join(data_folder, data_type, source, "random"), split)
             else:
                 default_df = load_df(

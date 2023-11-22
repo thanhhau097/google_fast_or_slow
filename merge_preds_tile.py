@@ -24,6 +24,11 @@ def score_tile_max(predictions, runtime):
 gt_rts = []
 pred_rts = []
 
+
+in_path = Path("./outputs_csv").resolve()
+out_path = Path("./outputs_csv_merge").resolve()
+out_path.mkdir(exist_ok=True)
+
 for f in tqdm(list(Path("./outputs_csv").glob("*.csv"))):
     preds = pd.read_csv(f)
 
@@ -55,4 +60,4 @@ submission_df = pd.DataFrame.from_dict(
     }
 )
 
-submission_df.to_csv("sub_ensemble_tile.csv", index=False)
+submission_df.to_csv(out_path / "sub_tile.csv", index=False)
