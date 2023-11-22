@@ -42,7 +42,7 @@ In order to predict with our models and generate the `submission.csv` file you c
 
 
 ## Training:
-For each type, we train 10+ models (except for tile, our best submission used only 5 models) with different seeds, then ensemble the predictions (see section 3) the result by `mean` aggregation.
+For each type, we train 5-10 models for each collection with different seeds and folds, then ensemble the predictions (see section 3) result by `mean` aggregation.
 
 - Tile XLA:
 ```
