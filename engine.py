@@ -771,10 +771,10 @@ class LayoutComputeMetricsFn:
                 idx = rows.index.tolist()
                 prediction = np.concatenate([predictions[i] for i in idx])
                 gt_ranks = np.concatenate([labels[i] for i in idx])
-                if sum([x.shape[0] for x in rows["config_runtime"]]) != len(prediction):
-                    print(
-                        f"WARNING: shape not mathing {len(prediction)}, {len(gt_ranks)}, {sum([x.shape[0] for x in rows['config_runtime']])}"
-                    )
+                # if sum([x.shape[0] for x in rows["config_runtime"]]) != len(prediction):
+                #     print(
+                #         f"WARNING: shape not mathing {len(prediction)}, {len(gt_ranks)}, {sum([x.shape[0] for x in rows['config_runtime']])}"
+                #     )
 
                 score = kendalltau(prediction, gt_ranks).statistic
                 scores.append(score)

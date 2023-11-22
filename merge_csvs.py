@@ -8,6 +8,9 @@ def merge_csvs(input_path, output_path):
     merged_df = pd.concat([pd.read_csv(f) for f in all_files])
     merged_df.to_csv(output_path, index=False)
 
+    merged_df["ID"] = merged_df["ID"].str.replace("_pruned", "")
+    merged_df["ID"] = merged_df["ID"].str.replace("_compressed", "")
+
     assert len(merged_df) == 894
     assert len(merged_df[merged_df["ID"].str.startswith("tile:xla:")]) == 844
     assert len(merged_df[merged_df["ID"].str.startswith("layout:xla:default:")]) == 8

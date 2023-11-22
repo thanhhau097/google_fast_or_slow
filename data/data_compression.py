@@ -169,7 +169,7 @@ def test_compression(data, db=False):
 
 if __name__ == "__main__":
     root = Path("./npz_all/npz")
-    max_workers = 8
+    max_workers = 2
 
     for collection in ["layout/xla", "layout/nlp"]:
         for ctype in ["default", "random"]:
@@ -196,5 +196,7 @@ if __name__ == "__main__":
                     np.savez_compressed(out_p, **data)
 
                 process_map(
-                    _process_one_npz, list(split_src_dir.glob("*.npz")), max_workers=3
+                    _process_one_npz,
+                    list(split_src_dir.glob("*.npz")),
+                    max_workers=max_workers,
                 )
