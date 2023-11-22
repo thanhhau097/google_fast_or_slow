@@ -73,28 +73,33 @@ def load_df(directory, split):
 
 
 class TileDataset(Dataset):
-    def __init__(self,
-                 data_type,
-                 source,
-                 data_folder,
-                 split="train",
-                 scaler=None,
-                 tgt_scaler=None,
-                 cfg_scaler=None,
-                 **kwargs
-        ):
+    def __init__(
+        self,
+        data_type,
+        source,
+        data_folder,
+        split="train",
+        scaler=None,
+        tgt_scaler=None,
+        cfg_scaler=None,
+        **kwargs,
+    ):
         self.df = load_df(os.path.join(data_folder, data_type, source), split)
-        self.df["target"] = self.df["config_runtime"] / (self.df["config_runtime_normalizers"] + 1e-5)
+        self.df["target"] = self.df["config_runtime"] / (
+            self.df["config_runtime_normalizers"] + 1e-5
+        )
         self.scaler = scaler
         self.tgt_scaler = tgt_scaler
         self.cfg_scaler = cfg_scaler
 
         if self.scaler is not None:
             self.scaler = self.scaler.fit(np.concatenate(self.df["node_feat"].tolist())[:, :134])
-        
+
         if self.tgt_scaler is not None:
-            self.tgt_scaler = self.tgt_scaler.fit(np.concatenate(self.df["target"].tolist())[:, None])
-        
+            self.tgt_scaler = self.tgt_scaler.fit(
+                np.concatenate(self.df["target"].tolist())[:, None]
+            )
+
         if self.cfg_scaler is not None:
             self.cfg_scaler = self.cfg_scaler.fit(np.concatenate(self.df["config_feat"].tolist()))
 
@@ -115,13 +120,13 @@ class TileDataset(Dataset):
 
         if self.cfg_scaler:
             config_feat = self.cfg_scaler.transform(config_feat)
-        
+
         if self.scaler:
             node_feat = self.scaler.transform(node_feat)
-        
+
         if self.tgt_scaler:
             target = self.tgt_scaler.transform(target[:, None]).squeeze(1)
-        
+
         config_feat = torch.tensor(config_feat)
         node_feat = torch.tensor(node_feat)
         node_layout_feat = torch.tensor(node_layout_feat, dtype=torch.long)
@@ -589,9 +594,7 @@ class DatasetFactory:
                         os.path.join(data_folder, data_type, source, "default"), split
                     )
                 else:
-                    default_df = load_df(
-                        os.path.join(data_folder, data_type, source), split
-                    )
+                    default_df = load_df(os.path.join(data_folder, data_type, source), split)
                 random_df = load_df(os.path.join(data_folder, data_type, source, "random"), split)
             else:
                 default_df = load_df(
