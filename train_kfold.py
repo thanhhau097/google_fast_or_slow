@@ -12,7 +12,13 @@ from transformers import HfArgumentParser, TrainingArguments, set_seed
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
 
 from data_args import DataArguments
-from dataset import LayoutDataset, TileDataset, layout_collate_fn, tile_collate_fn, DatasetFactory
+from dataset import (
+    LayoutDataset,
+    TileDataset,
+    layout_collate_fn,
+    tile_collate_fn,
+    DatasetFactory,
+)
 from engine import CustomTrainer, LayoutComputeMetricsFn, TileComputeMetricsFn
 from model import LayoutModel, TileModel, LayoutModel
 from model_args import ModelArguments
@@ -22,11 +28,13 @@ from safetensors import safe_open
 torch.set_float32_matmul_precision("high")
 logger = logging.getLogger(__name__)
 
-NB_FOLDS = 7
+NB_FOLDS = 20
 TTA = None
+CKPT_MODE_SAFETENSOR = False
 
 
 def main():
+    global CKPT_MODE_SAFETENSOR
     parser = HfArgumentParser((DataArguments, ModelArguments, TrainingArguments))
     data_args, model_args, training_args = parser.parse_args_into_dataclasses()
 
@@ -56,7 +64,9 @@ def main():
         datefmt="%m/%d/%Y %H:%M:%S",
         handlers=[logging.StreamHandler(sys.stdout)],
     )
-    logger.setLevel(logging.INFO if is_main_process(training_args.local_rank) else logging.WARN)
+    logger.setLevel(
+        logging.INFO if is_main_process(training_args.local_rank) else logging.WARN
+    )
     # Set the verbosity to info of the Transformers logger (on main process only):
     if is_main_process(training_args.local_rank):
         # transformers.utils.logging.set_verbosity_info()
@@ -91,19 +101,23 @@ def main():
     all_val_probs = []
     for fold in range(NB_FOLDS):
         if not training_args.do_train and model_args.weights_folder:
-            ckpt_path = (
-                Path(model_args.weights_folder)
-                / f"fold_{fold}"
-                / "checkpoint"
-                # / "pytorch_model.bin"
-                / "model.safetensors"
-            )
-            if not ckpt_path.exists():
+            ckpt_path = Path(model_args.weights_folder) / f"fold_{fold}" / "checkpoint"
+            if (ckpt_path / "pytorch_model.bin").exists():
+                ckpt_path = ckpt_path / "pytorch_model.bin"
+                CKPT_MODE_SAFETENSOR = False
+            elif (ckpt_path / "model.safetensors").exists():
+                ckpt_path = ckpt_path / "model.safetensors"
+                CKPT_MODE_SAFETENSOR = True
+            else:
                 print(f"Checkpoint {ckpt_path} not found. Skipping fold {fold}")
                 continue
             last_checkpoint = str(ckpt_path)
 
-        (prediction_files, predictions_prob), (val_files, val_probs, val_gts) = train_on_fold(
+        (prediction_files, predictions_prob), (
+            val_files,
+            val_probs,
+            val_gts,
+        ) = train_on_fold(
             output_dir,
             data_args,
             model_args,
@@ -138,11 +152,14 @@ def main():
             "TopConfigs": prediction_indices,
         }
     )
-    if not os.path.exists("outputs_csv"):
-        os.makedirs("outputs_csv")
+
+    os.makedirs("outputs_probs", exist_ok=True)
+    os.makedirs("outputs_csv", exist_ok=True)
 
     if data_args.data_type == "tile":
-        submission_df.to_csv(os.path.join("outputs_csv", "tile:xla:submission.csv"), index=False)
+        submission_df.to_csv(
+            os.path.join("outputs_csv", "tile:xla:submission.csv"), index=False
+        )
     else:
         submission_df.to_csv(
             os.path.join(
@@ -184,7 +201,13 @@ def main():
 
 
 def train_on_fold(
-    output_dir, data_args, model_args, training_args, dataset_factory, fold, last_checkpoint
+    output_dir,
+    data_args,
+    model_args,
+    training_args,
+    dataset_factory,
+    fold,
+    last_checkpoint,
 ):
     print(f"Starting fold {fold}")
     set_seed(training_args.seed + fold)
@@ -226,9 +249,11 @@ def train_on_fold(
 
     if last_checkpoint is not None:
         logger.info(f"Loading {last_checkpoint} ...")
-        # checkpoint = torch.load(last_checkpoint, "cpu")
-        checkpoint = safe_open(last_checkpoint, "pt")
-        checkpoint = {k: checkpoint.get_tensor(k) for k in checkpoint.keys()}
+        if not CKPT_MODE_SAFETENSOR:
+            checkpoint = torch.load(last_checkpoint, "cpu")
+        else:
+            checkpoint = safe_open(last_checkpoint, "pt")
+            checkpoint = {k: checkpoint.get_tensor(k) for k in checkpoint.keys()}
         if "state_dict" in checkpoint:
             checkpoint = checkpoint.pop("state_dict")
         model.load_state_dict(checkpoint)
@@ -260,10 +285,14 @@ def train_on_fold(
     # Evaluation
     if training_args.do_eval:
         logger.info("*** Evaluate ***")
-        val_files, val_probs, _ = predict(data_args, "valid", trainer, dataset_factory, tta=TTA)
+        val_files, val_probs, _ = predict(
+            data_args, "valid", trainer, dataset_factory, tta=TTA
+        )
         metric_fn = LayoutComputeMetricsFn(dataset_factory.valid_df, split="valid")
         val_gts = [
-            metric_fn.df.set_index("file").loc[file.split(":")[-1] + ".npz", "config_runtime"]
+            metric_fn.df.set_index("file").loc[
+                file.split(":")[-1] + ".npz", "config_runtime"
+            ]
             for file in val_files
         ]
         metrics = metric_fn((val_probs, val_gts))

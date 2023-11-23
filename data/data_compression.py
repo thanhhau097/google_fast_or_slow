@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import seaborn as sns
 from tqdm.auto import tqdm
+from tqdm.contrib.concurrent import process_map
 
 
 def get_obj_mbs(obj, cp=True):
@@ -168,42 +169,34 @@ def test_compression(data, db=False):
 
 if __name__ == "__main__":
     root = Path("./npz_all/npz")
-    collection = "layout/xla"
-    # collection = "layout/nlp"
-    # ctype = "default"
-    ctype = "random"
+    max_workers = 2
 
     for collection in ["layout/xla", "layout/nlp"]:
         for ctype in ["default", "random"]:
-            dst_dir = root / f"{collection}_compressed" / ctype
+            dst_dir = root / f"{collection}_pruned_compressed" / ctype
             for split in ["train", "valid", "test"]:
                 print("Loading {} data...".format(split))
                 split_src_dir = root / collection / ctype / split
                 split_dst_dir = dst_dir / split
                 split_dst_dir.mkdir(parents=True, exist_ok=True)
 
-                for npz_path in tqdm(list(split_src_dir.glob("*.npz"))):
+                def _process_one_npz(npz_path):
                     out_p = split_dst_dir / npz_path.name
 
                     if out_p.exists():
-                        continue
+                        return
 
                     data = dict(np.load(str(npz_path), allow_pickle=True))
-                    # data = prune_graph(data)
-
+                    data = prune_graph(data)
                     if split == "train":
-                        # assert test_dedup_configs(data)
-                        data = dedup_configs(data)
-
-                    # if split == "valid":
-                    #     best_idx = np.argsort(data["config_runtime"])[:1000]
-                    #     data["node_config_feat"] = data["node_config_feat"][best_idx]
-                    #     data["config_runtime"] = data["config_runtime"][best_idx]
-
-                    # assert test_compression(data)
+                        data = remove_dupplicated_node_configs(data)
                     data["node_config_feat"] = compress_configs(
                         data["node_config_feat"]
                     )
+                    np.savez_compressed(out_p, **data)
 
-                    # np.savez(split_dst_dir / npz_path.name, **data)
-                    np.savez_compressed(split_dst_dir / npz_path.name, **data)
+                process_map(
+                    _process_one_npz,
+                    list(split_src_dir.glob("*.npz")),
+                    max_workers=max_workers,
+                )

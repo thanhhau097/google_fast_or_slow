@@ -2,3 +2,5 @@ torch
 transformers==4.34.1
 torch-geometric
 pandas
+kaggle
+accelerate==0.24.1

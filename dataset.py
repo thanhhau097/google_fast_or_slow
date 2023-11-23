@@ -73,33 +73,75 @@ def load_df(directory, split):
 
 
 class TileDataset(Dataset):
-    def __init__(self, data_type, source, search, data_folder, split="train", **kwargs):
+    def __init__(
+        self,
+        data_type,
+        source,
+        data_folder,
+        split="train",
+        scaler=None,
+        tgt_scaler=None,
+        cfg_scaler=None,
+        **kwargs,
+    ):
         self.df = load_df(os.path.join(data_folder, data_type, source), split)
+        self.df["target"] = self.df["config_runtime"] / (
+            self.df["config_runtime_normalizers"] + 1e-5
+        )
+        self.scaler = scaler
+        self.tgt_scaler = tgt_scaler
+        self.cfg_scaler = cfg_scaler
+
+        if self.scaler is not None:
+            self.scaler = self.scaler.fit(np.concatenate(self.df["node_feat"].tolist())[:, :134])
+
+        if self.tgt_scaler is not None:
+            self.tgt_scaler = self.tgt_scaler.fit(
+                np.concatenate(self.df["target"].tolist())[:, None]
+            )
+
+        if self.cfg_scaler is not None:
+            self.cfg_scaler = self.cfg_scaler.fit(np.concatenate(self.df["config_feat"].tolist()))
 
     def __len__(self):
         return len(self.df)
 
     def __getitem__(self, idx):
         row = self.df.iloc[idx]
-        config_feat = torch.tensor(row["config_feat"].astype(np.float32))
-        node_feat = torch.tensor(row["node_feat"].astype(np.float32))
-        node_opcode = torch.tensor(row["node_opcode"].astype(np.int64))
-        edge_index = torch.tensor(np.swapaxes(row["edge_index"], 0, 1).astype(np.int64))
-        target = (row["config_runtime"] / (row["config_runtime_normalizers"] + 1e-5)).astype(
-            np.float32
-        )  # /row['config_runtime_normalizers']
-        # minmax scale the target, we only care about order
-        target = (target - np.mean(target)) / (np.std(target) + 1e-5)
 
-        #         target = (target-np.mean(target))/(np.std(target))
+        node_feat = row["node_feat"]
+        node_layout_feat = node_feat[:, 134:].astype(np.int32)
+        node_feat = node_feat[:, :134].astype(np.float32)
+
+        config_feat = row["config_feat"].astype(np.float32)
+        target = row["target"].astype(np.float32)
+        node_opcode = row["node_opcode"].astype(np.int64)
+        edge_index = np.swapaxes(row["edge_index"], 0, 1).astype(np.int64)
+
+        if self.cfg_scaler:
+            config_feat = self.cfg_scaler.transform(config_feat)
+
+        if self.scaler:
+            node_feat = self.scaler.transform(node_feat)
+
+        if self.tgt_scaler:
+            target = self.tgt_scaler.transform(target[:, None]).squeeze(1)
+
+        config_feat = torch.tensor(config_feat)
+        node_feat = torch.tensor(node_feat)
+        node_layout_feat = torch.tensor(node_layout_feat, dtype=torch.long)
         target = torch.tensor(target)
-        return config_feat, node_feat, node_opcode, edge_index, target
+        node_opcode = torch.tensor(node_opcode)
+        edge_index = torch.tensor(edge_index)
+
+        return config_feat, node_feat, node_layout_feat, node_opcode, edge_index, target
 
 
 def tile_collate_fn(batch):
-    config_feat, node_feat, node_opcode, edge_index, target = zip(*batch)
+    config_feat, node_feat, node_layout_feat, node_opcode, edge_index, target = zip(*batch)
     config_feat = torch.stack(config_feat)
     node_feat = torch.stack(node_feat)
+    node_layout_feat = torch.stack(node_layout_feat)
     node_opcode = torch.stack(node_opcode)
     edge_index = torch.stack(edge_index)
     target = torch.stack(target)
@@ -108,6 +150,7 @@ def tile_collate_fn(batch):
     return {
         "config_feat": config_feat[0],
         "node_feat": node_feat[0],
+        "node_layout_feat": node_layout_feat[0],
         "node_opcode": node_opcode[0],
         "edge_index": edge_index[0],
         "target": target[0],
@@ -546,9 +589,12 @@ class DatasetFactory:
         if search == "mix":
             # in mix mode, we load all the data both from default and random
             if not use_compressed:
-                default_df = load_df(
-                    os.path.join(data_folder, data_type, source, "default"), split
-                )
+                if data_type == "layout":
+                    default_df = load_df(
+                        os.path.join(data_folder, data_type, source, "default"), split
+                    )
+                else:
+                    default_df = load_df(os.path.join(data_folder, data_type, source), split)
                 random_df = load_df(os.path.join(data_folder, data_type, source, "random"), split)
             else:
                 default_df = load_df(
