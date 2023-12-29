@@ -13,6 +13,33 @@
 - Tile: results show that combining configuration features with node features early (early-join) is superior than combining configuration features with a reduced graph embedding later (late-join).
 - more ideas from baseline paper: https://arxiv.org/pdf/2308.13490.pdf
 - Graph Segment Training: https://github.com/kaidic/GST
+
+# Guidelines
+```
+git clone git@github.com:thanhhau097/google_fast_or_slow.git
+git checkout kfold_finetune
+cd google_fast_or_slow/data
+
+kaggle competitions download -c predict-ai-model-runtime
+unzip predict-ai-model-runtime.zip
+
+python data_compression.py
+python data_kfold.py
+cd ../
+
+./run_everything.sh
+```
+1. Preprocess data
+```
+cd data/
+python data_compression.py
+python data_kfold.py
+cd ../
+```
+
+2. Use `train_kfold.py` to train all models and finetune each architecture in test set, use fold = -1 to train all folds, or specify fold number from 0-8 to train, see `run.sh` to see example commands
+3. Use `ensemble.ipynb` to merge all predictions from different models and folds
+
 # Training scripts
 
 1. Tile

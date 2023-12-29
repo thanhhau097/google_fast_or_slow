@@ -1,3 +1,4 @@
+from copy import deepcopy
 import logging
 import os
 import sys
@@ -81,20 +82,16 @@ def main():
         kfold=True,
     )
 
+    NB_FOLDS = 9
     if data_args.fold == -1:
         training_folds = list(range(NB_FOLDS))
     else:
         training_folds = [data_args.fold]
 
     predictions_probs = []
-    for fold in range(training_folds):
-        if not training_args.do_train and model_args.weights_folder:
-            ckpt_path = (
-                Path(model_args.weights_folder)
-                / f"fold_{fold}"
-                / "checkpoint"
-                / "pytorch_model.bin"
-            )
+    for fold in training_folds:
+        if not training_args.do_train and training_args.output_dir: #model_args.weights_folder:
+            ckpt_path = (Path(training_args.output_dir) / f"fold_{fold}" / "pytorch_model.bin")
             if not ckpt_path.exists():
                 print(f"Checkpoint {ckpt_path} not found. Skipping fold {fold}")
                 continue
@@ -212,12 +209,55 @@ def train_on_fold(
         trainer.save_metrics("train", metrics)
         trainer.save_state()
 
+    def get_prediction_results(predictions, dataset):
+        new_predictions = []
+        for e in predictions:
+            # only get top 5
+            new_predictions.append(np.array([x for x in e if x != -100]))
+
+        predictions = new_predictions
+
+        prediction_files = []
+        predictions_probs = []
+        prediction_indices = []
+        if data_args.data_type == "tile":
+            predictions = [pred[:5] for pred in predictions]
+
+            for file_id, prediction in zip(dataset.df["file"], predictions):
+                prediction_files.append("tile:xla:" + file_id[:-4])
+                prediction_indices.append(";".join([str(int(e)) for e in prediction]))
+        else:
+            for file_id, rows in dataset.df.groupby("file"):
+                idx = rows.index.tolist()
+                prediction = np.concatenate([predictions[i] for i in idx])
+                predictions_probs.append(prediction)
+                prediction = np.argsort(prediction)
+                prediction_files.append(
+                    f"{data_args.data_type}:{data_args.source}:{data_args.search}:" + file_id[:-4]
+                )
+                prediction_indices.append(";".join([str(int(e)) for e in prediction]))
+        
+        return prediction_files, predictions_probs
+
     # Evaluation
     if training_args.do_eval:
         logger.info("*** Evaluate ***")
         metrics = trainer.evaluate()
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
+
+        val_predictions = trainer.predict(val_dataset).predictions
+        prediction_files, predictions_probs = get_prediction_results(val_predictions, val_dataset)
+        # save to numpy file
+        save_dict = {
+            "prediction_files": prediction_files,
+            "predictions_probs": predictions_probs,
+        }
+        np.save(
+            os.path.join(training_args.output_dir, "val_predictions.npy"),
+            save_dict,
+            allow_pickle=True,
+        )
 
     # Inference
     logger.info("*** Predict ***")
@@ -228,32 +268,109 @@ def train_on_fold(
 
     predictions = trainer.predict(test_dataset).predictions
 
-    new_predictions = []
-    for e in predictions:
-        # only get top 5
-        new_predictions.append(np.array([x for x in e if x != -100]))
+    prediction_files, predictions_probs = get_prediction_results(predictions, test_dataset)
+    # save to numpy file
+    save_dict = {
+        "prediction_files": prediction_files,
+        "predictions_probs": predictions_probs,
+    }
+    np.save(
+        os.path.join(training_args.output_dir, "predictions.npy"),
+        save_dict,
+        allow_pickle=True,
+    )
 
-    predictions = new_predictions
-
-    prediction_files = []
-    predictions_probs = []
-    prediction_indices = []
-    if data_args.data_type == "tile":
-        predictions = [pred[:5] for pred in predictions]
-
-        for file_id, prediction in zip(test_dataset.df["file"], predictions):
-            prediction_files.append("tile:xla:" + file_id[:-4])
-            prediction_indices.append(";".join([str(int(e)) for e in prediction]))
-    else:
-        for file_id, rows in test_dataset.df.groupby("file"):
-            idx = rows.index.tolist()
-            prediction = np.concatenate([predictions[i] for i in idx])
-            predictions_probs.append(prediction)
-            prediction = np.argsort(prediction)
-            prediction_files.append(
-                f"{data_args.data_type}:{data_args.source}:{data_args.search}:" + file_id[:-4]
+    # architecture fine-tuning
+    if data_args.architecture_finetune:
+        # save current best model then load it back
+        best_model_path = os.path.join(training_args.output_dir, "pytorch_model.bin")
+        # trainer.save_model(os.path.join(training_args.output_dir, str(fold)))
+        for filename in dataset_factory.test_mapping.keys():
+            if os.path.exists(os.path.join(training_args.output_dir, "finetuning", filename, "predictions.npy")):
+                print(f"Skipping {filename} as it already exists")
+                continue
+            # create new datasets
+            train_dataset, val_dataset, test_dataset = dataset_factory.get_datasets(
+                fold, output_dir=training_args.output_dir,
+                architecture_finetune=data_args.architecture_finetune,
+                architecture_finetune_test_file_names=filename,
             )
-            prediction_indices.append(";".join([str(int(e)) for e in prediction]))
+
+            model.load_state_dict(torch.load(best_model_path))
+            
+            new_training_args = deepcopy(training_args)
+            new_training_args.num_train_epochs = data_args.architecture_finetune_epochs
+            new_training_args.eval_steps = data_args.architecture_finetune_eval_steps
+            new_training_args.save_steps = data_args.architecture_finetune_eval_steps
+            new_training_args.output_dir = os.path.join(training_args.output_dir, "finetuning", filename)
+            new_training_args.do_train = True
+            new_training_args.do_eval = True
+            new_training_args.do_predict = True
+
+            if data_args.data_type == "tile":
+                compute_metrics = TileComputeMetricsFn(val_dataset.df)
+            else:
+                compute_metrics = LayoutComputeMetricsFn(val_dataset.df)
+
+            new_trainer = CustomTrainer(
+                model=model,
+                args=new_training_args,
+                train_dataset=train_dataset,
+                eval_dataset=val_dataset,
+                data_collator=collate_fn,
+                compute_metrics=compute_metrics,
+                data_type=data_args.data_type,
+            )
+
+            # finetune with new dataset
+            logger.info("*** Evaluate before Finetune ***")
+            new_trainer.evaluate()
+            logger.info("*** Finetune ***")
+            train_result = new_trainer.train()
+            metrics = train_result.metrics
+            new_trainer.save_model()
+            new_trainer.log_metrics("train", metrics)
+            new_trainer.save_metrics("train", metrics)
+            new_trainer.save_state()
+
+            logger.info("*** Evaluate ***")
+            metrics = new_trainer.evaluate()
+            new_trainer.log_metrics("eval", metrics)
+            new_trainer.save_metrics("eval", metrics)
+            val_predictions = new_trainer.predict(val_dataset).predictions
+            prediction_files, predictions_probs = get_prediction_results(val_predictions, val_dataset)
+            # save to numpy file
+            save_dict = {
+                "prediction_files": prediction_files,
+                "predictions_probs": predictions_probs,
+            }
+            np.save(
+                os.path.join(new_training_args.output_dir, "val_predictions.npy"),
+                save_dict,
+                allow_pickle=True,
+            )
+
+            # export prediction probs then save to folder
+            logger.info("*** Predict ***")
+            if data_args.data_type == "tile":
+                new_trainer.compute_metrics = TileComputeMetricsFn(test_dataset.df, split="test")
+            else:
+                new_trainer.compute_metrics = LayoutComputeMetricsFn(test_dataset.df, split="test")
+
+            predictions = new_trainer.predict(test_dataset).predictions
+            prediction_files, predictions_probs = get_prediction_results(predictions, test_dataset)
+            
+                # save to numpy file
+            save_dict = {
+                "prediction_files": prediction_files,
+                "predictions_probs": predictions_probs,
+            }
+            np.save(
+                os.path.join(new_training_args.output_dir, "predictions.npy"),
+                save_dict,
+                allow_pickle=True,
+            )
+
     return prediction_files, predictions_probs
 
 

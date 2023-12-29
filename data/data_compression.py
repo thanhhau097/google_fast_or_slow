@@ -173,7 +173,7 @@ if __name__ == "__main__":
     # ctype = "default"
     ctype = "random"
 
-    for collection in ["layout/xla", "layout/nlp"]:
+    for collection in ["layout/nlp"]: # , "layout/nlp"]:
         for ctype in ["default", "random"]:
             dst_dir = root / f"{collection}_compressed" / ctype
             for split in ["train", "valid", "test"]:
@@ -189,7 +189,7 @@ if __name__ == "__main__":
                         continue
 
                     data = dict(np.load(str(npz_path), allow_pickle=True))
-                    # data = prune_graph(data)
+                    data = prune_graph(data)
 
                     if split == "train":
                         # assert test_dedup_configs(data)

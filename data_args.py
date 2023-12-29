@@ -39,5 +39,19 @@ class DataArguments:
         default=False, metadata={"help": "Whether to use standard scaler"}
     )
     fold: int = field(
-        default=0, metadata={"help": "Which fold to use. 0-8 for kfold, -1 for all folds"}
+        default=-1, metadata={"help": "Which fold to use. 0-8 for kfold, -1 for all folds"}
+    )
+
+    # finetuning base on architecture
+    architecture_finetune: bool = field(
+        default=False, metadata={"help": "Whether to finetune architecture"}
+    )
+    architecture_finetune_epochs: int = field(
+        default=100, metadata={"help": "Number of epochs to finetune architecture"}
+    )
+    architecture_finetune_eval_steps: int = field(
+        default=1000, metadata={"help": "Number of steps to evaluate architecture"}
+    )
+    architecture_finetune_test_file_names: str = field(
+        default="all", metadata={"help": "The name of the test files, or 'all' for all test files"}
     )
